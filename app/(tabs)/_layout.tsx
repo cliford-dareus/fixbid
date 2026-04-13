@@ -1,35 +1,58 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import {router, Tabs} from 'expo-router';
+import {FileText, Home, List, LogOut, Toolbox} from 'lucide-react-native';
+import {TouchableOpacity} from 'react-native';
+import {useAuth} from "@/context/auth-context";
+import {useEffect} from "react";
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+export default function TabsLayout() {
+    const {user, session, signOut} = useAuth();
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+    useEffect(() => {
+        if (user && session) {
+            router.replace('/(tabs)');
+        }
+    }, [session, user]);
 
-  return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
-    </Tabs>
-  );
+    return (
+        <Tabs
+            screenOptions={{
+                tabBarActiveTintColor: '#3b82f6',
+                tabBarInactiveTintColor: '#6b7280',
+                headerRight: () => (
+                    <TouchableOpacity onPress={signOut} className="mr-4">
+                        <LogOut size={24} color="#ef4444"/>
+                    </TouchableOpacity>
+                ),
+            }}
+        >
+            <Tabs.Screen
+                name="index"
+                options={{
+                    title: 'Dashboard',
+                    tabBarIcon: ({color}) => <Home size={24} color={color}/>, // import Home from lucide-react-native
+                }}
+            />
+            <Tabs.Screen
+                name="quotes"
+                options={{
+                    title: 'Quotes',
+                    tabBarIcon: ({color}) => <FileText size={24} color={color}/>,
+                }}
+            />
+            <Tabs.Screen
+                name="templates"
+                options={{
+                    title: 'Templates',
+                    tabBarIcon: ({color}) => <List size={24} color={color}/>,
+                }}
+            />
+            {/*<Tabs.Screen*/}
+            {/*    name="jobs"*/}
+            {/*    options={{*/}
+            {/*        title: 'Jobs',*/}
+            {/*        tabBarIcon: ({ color }) => <Toolbox size={24} color={color} />,*/}
+            {/*    }}*/}
+            {/*/>*/}
+        </Tabs>
+    );
 }

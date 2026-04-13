@@ -1,98 +1,62 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React from 'react';
+import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Plus, Clock, DollarSign } from 'lucide-react-native';
+import {useAuth} from "@/context/auth-context";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+export default function Dashboard() {
+  const router = useRouter();
+  const { user } = useAuth();
 
-export default function HomeScreen() {
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+      <View className="flex-1 bg-gray-50">
+        {/* Header */}
+        <View className="bg-blue-600 pt-12 pb-6 px-6">
+          <Text className="text-white text-3xl font-bold">Good morning, Handyman {user?.email}!</Text>
+          <Text className="text-blue-100 mt-1">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </Text>
+        </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        <ScrollView className="flex-1 px-6 pt-6">
+          {/* Quick Stats */}
+          <View className="flex-row gap-4 mb-8">
+            <View className="flex-1 bg-white p-5 rounded-3xl shadow-sm">
+              <Clock size={28} color="#3b82f6" />
+              <Text className="text-3xl font-bold mt-3">12</Text>
+              <Text className="text-gray-500">Jobs this month</Text>
+            </View>
+            <View className="flex-1 bg-white p-5 rounded-3xl shadow-sm">
+              <DollarSign size={28} color="#10b981" />
+              <Text className="text-3xl font-bold mt-3">$2,840</Text>
+              <Text className="text-gray-500">Earned</Text>
+            </View>
+          </View>
+
+          {/* Big New Quote Button */}
+          <TouchableOpacity
+              onPress={() => router.push('/(tabs)/quotes/new')}
+              className="bg-blue-600 py-6 rounded-3xl flex-row items-center justify-center gap-3 active:bg-blue-700 mb-8"
+          >
+            <Plus size={32} color="white" />
+            <Text className="text-white text-2xl font-semibold">New Quote</Text>
+          </TouchableOpacity>
+
+          {/* Recent Activity */}
+          <Text className="text-xl font-semibold mb-4">Recent Quotes</Text>
+
+          <View className="bg-white rounded-3xl p-5 mb-4">
+            <Text className="font-medium">Faucet Replacement - Mrs. Johnson</Text>
+            <Text className="text-green-600 mt-1">$185 • Approved</Text>
+            <Text className="text-gray-400 text-sm mt-3">Today at 10:30 AM</Text>
+          </View>
+
+          <View className="bg-white rounded-3xl p-5">
+            <Text className="font-medium">Toilet Repair - Mr. Ramirez</Text>
+            <Text className="text-amber-600 mt-1">$95 • Sent</Text>
+            <Text className="text-gray-400 text-sm mt-3">Yesterday</Text>
+          </View>
+        </ScrollView>
+      </View>
   );
 }
-
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
-});
