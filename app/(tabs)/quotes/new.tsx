@@ -1,7 +1,6 @@
 import React, {useState} from 'react';
-import {View, Text, TextInput, TouchableOpacity, ScrollView, Alert} from 'react-native';
+import {View, Text, TextInput, TouchableOpacity, ScrollView, Alert, KeyboardAvoidingView, Platform} from 'react-native';
 import {useRouter} from 'expo-router';
-import {Camera, Plus, Trash2} from 'lucide-react-native';
 import {useQuote} from "@/context/quote-context";
 import {Image} from "expo-image";
 import * as ImagePicker from 'expo-image-picker';
@@ -10,14 +9,30 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import {supabase} from "@/lib/supabase";
 import {uploadQuotePhoto} from "@/lib/upload-photo";
+import {Feather} from "@expo/vector-icons";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
+import {calculateJobCost, JOB_TEMPLATES} from "@/data/templates";
+
+interface LineItem {
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    isLabor: boolean;
+    photoUri?: string;
+}
 
 export default function NewQuote() {
     const router = useRouter();
-    const {lineItems, addLineItem, removeLineItem, updateLineItem, clearLineItems} = useQuote();
+    const insets = useSafeAreaInsets();
+    const {clients, lineItems, removeLineItem, updateLineItem, addLineItem, setLineItems} = useQuote();
+    const [step, setStep] = useState<"photo" | "details">("photo");
+    const [photos, setPhotos] = useState<string[]>([]);
+    const [jobName, setJobName] = useState("");
+    const [notes, setNotes] = useState("");
+    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
     const [clientName, setClientName] = useState('');
     const [clientPhone, setClientPhone] = useState('');
-    const [notes, setNotes] = useState('');
 
     React.useEffect(() => {
         (async () => {
@@ -29,46 +44,59 @@ export default function NewQuote() {
     }, []);
 
     const total = lineItems.reduce((sum, item) =>
-        sum + (item.quantity * item.unitPrice), 0
+        sum + (item?.quantity * item?.unitPrice), 0
     );
 
-    const saveQuote = () => {
-        if (!clientName.trim()) {
-            Alert.alert('Error', 'Client name is required');
-            return;
+    const pickPhoto = async () => {
+        if (Platform.OS !== "web") {
+            const {status} = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== "granted") {
+                Alert.alert("Permission needed", "Allow photo access to upload job photos.");
+                return;
+            }
         }
-        if (lineItems.length === 0) {
-            Alert.alert('Error', 'Add at least one line item');
-            return;
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: "images",
+            allowsMultipleSelection: true,
+            quality: 0.8,
+        });
+        if (!result.canceled) {
+            const uris = result.assets.map((a) => a.uri);
+            setPhotos((prev) => [...prev, ...uris].slice(0, 5));
         }
-
-        Alert.alert(
-            'Quote Ready!',
-            `Client: ${clientName}\nTotal: $${total}\n\n(Supabase save coming soon)`,
-            [{
-                text: 'OK', onPress: () => {
-                    clearLineItems();
-                    router.back();
-                }
-            }]
-        );
     };
 
-    const saveToSupabase = async () => {
+    const takePhoto = async () => {
+        if (Platform.OS !== "web") {
+            const {status} = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== "granted") {
+                Alert.alert("Permission needed", "Allow camera access to take job photos.");
+                return;
+            }
+            const result = await ImagePicker.launchCameraAsync({quality: 0.8});
+            if (!result.canceled) {
+                setPhotos((prev) => [...prev, result.assets[0].uri].slice(0, 5));
+            }
+        } else {
+            Alert.alert("Camera not available on web", "Use the upload button instead.");
+        }
+    };
+
+    const handleSave = async () => {
         if (!clientName.trim() || lineItems.length === 0) {
             Alert.alert('Error', 'Client name and at least one item required');
             return;
         }
 
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const {data: {user}} = await supabase.auth.getUser();
 
             if (!user) {
                 Alert.alert('Not logged in');
                 return;
             }
             // 1. Create the Quote
-            const { data: quote, error: quoteError } = await supabase
+            const {data: quote, error: quoteError} = await supabase
                 .from('quotes')
                 .insert({
                     handyman_id: user.id,
@@ -103,9 +131,8 @@ export default function NewQuote() {
             Alert.alert('Success!', 'Quote saved to database.\nYou can now generate PDF or view in Quotes list.');
 
             // Clear form and go back
-            clearLineItems();
+            // clearLineItems();
             router.back();
-
         } catch (error: any) {
             console.error(error);
             Alert.alert('Save Failed', error.message || 'Please try again');
@@ -124,68 +151,68 @@ export default function NewQuote() {
 
         // Build nice HTML for the PDF
         const htmlContent = `
-    <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 40px; line-height: 1.6; }
-          h1 { color: #1e40af; text-align: center; }
-          .header { text-align: center; margin-bottom: 30px; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-          th { background-color: #f1f5f9; }
-          .total { font-size: 24px; font-weight: bold; color: #15803d; text-align: right; margin-top: 20px; }
-          .photo { max-width: 300px; margin: 10px 0; border-radius: 8px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>FixBid Handyman Quote</h1>
-          <p><strong>Cliford Dareus</strong> • Professional Handyman • Miramar, FL</p>
-          <p>Date: ${new Date().toLocaleDateString()}</p>
-        </div>
-
-        <h2>Client: ${clientName}</h2>
-        ${clientPhone ? `<p>Phone: ${clientPhone}</p>` : ''}
-
-        <table>
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th>Qty</th>
-              <th>Unit Price</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${lineItems.map(item => `
-              <tr>
-                <td>${item.description}</td>
-                <td>${item.quantity}</td>
-                <td>$${item.unitPrice}</td>
-                <td>$${(item.quantity * item.unitPrice).toFixed(2)}</td>
-              </tr>
-              ${item.photoUri ? `
-                <tr>
-                  <td colspan="4">
-                    <img src="${item.photoUri}" class="photo" alt="Before photo" />
-                  </td>
-                </tr>
-              ` : ''}
-            `).join('')}
-          </tbody>
-        </table>
-
-        <div class="total">Total: $${total}</div>
-
-        ${notes ? `<p><strong>Notes:</strong><br>${notes.replace(/\n/g, '<br>')}</p>` : ''}
-
-        <p style="margin-top: 50px; text-align: center; color: #666;">
-          Thank you for your business!<br>
-          Call or text Cliford at any time for questions.
-        </p>
-      </body>
-    </html>
-  `;
+            <html>
+              <head>
+                <style>
+                  body { font-family: Arial, sans-serif; padding: 40px; line-height: 1.6; }
+                  h1 { color: #1e40af; text-align: center; }
+                  .header { text-align: center; margin-bottom: 30px; }
+                  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                  th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                  th { background-color: #f1f5f9; }
+                  .total { font-size: 24px; font-weight: bold; color: #15803d; text-align: right; margin-top: 20px; }
+                  .photo { max-width: 300px; margin: 10px 0; border-radius: 8px; }
+                </style>
+              </head>
+              <body>
+                <div class="header">
+                  <h1>FixBid Handyman Quote</h1>
+                  <p><strong>Cliford Dareus</strong> • Professional Handyman • Miramar, FL</p>
+                  <p>Date: ${new Date().toLocaleDateString()}</p>
+                </div>
+        
+                <h2>Client: ${clientName}</h2>
+                ${clientPhone ? `<p>Phone: ${clientPhone}</p>` : ''}
+        
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Description</th>
+                      <th>Qty</th>
+                      <th>Unit Price</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${lineItems.map(item => `
+                      <tr>
+                        <td>${item.description}</td>
+                        <td>${item.quantity}</td>
+                        <td>$${item.unitPrice}</td>
+                        <td>$${(item.quantity * item.unitPrice).toFixed(2)}</td>
+                      </tr>
+                      ${item.photoUri ? `
+                        <tr>
+                          <td colspan="4">
+                            <img src="${item.photoUri}" class="photo" alt="Before photo" />
+                          </td>
+                        </tr>
+                      ` : ''}
+                    `).join('')}
+                  </tbody>
+                </table>
+        
+                <div class="total">Total: $${total}</div>
+        
+                ${notes ? `<p><strong>Notes:</strong><br>${notes.replace(/\n/g, '<br>')}</p>` : ''}
+        
+                <p style="margin-top: 50px; text-align: center; color: #666;">
+                  Thank you for your business!<br>
+                  Call or text Cliford at any time for questions.
+                </p>
+              </body>
+            </html>
+        `;
 
         try {
             // Generate PDF file
@@ -212,53 +239,238 @@ export default function NewQuote() {
         }
     };
 
-    return (
-        <View className="flex-1 bg-gray-50">
-            <ScrollView className="flex-1">
-                <View className="bg-blue-600 px-6 py-8">
-                    <Text className="text-white text-3xl font-bold">New Quote</Text>
+    const suggestTemplate = () => {
+        if (photos.length === 0 && !jobName) return;
+        const lowerName = jobName.toLowerCase();
+        const match = JOB_TEMPLATES.find(
+            (t) =>
+                lowerName.includes(t.name.toLowerCase().split(" ")[0]) ||
+                lowerName.includes(t.category.toLowerCase())
+        );
+        if (match) {
+            const cost = calculateJobCost(match);
+            Alert.alert(
+                `Suggested: ${match.name}`,
+                `Template match found!\n\nEstimated: $${cost.suggested}\nTime: ${match.timeEstimateHours}h\n\nApply this template?`,
+                [
+                    {text: "No thanks", style: "cancel"},
+                    {
+                        text: "Use template",
+                        onPress: () => {
+                            setJobName(match.name);
+                            setLineItems([
+                                {
+                                    description: `Labor (${match.timeEstimateHours}h @ $${match.laborRate}/hr)`,
+                                    quantity: 1,
+                                    unitPrice: match.timeEstimateHours * match.laborRate,
+                                    isLabor: true
+                                },
+                                ...match.materials
+                                    .filter((m) => m.qty > 0)
+                                    .map((m) => ({
+                                        description: m.name,
+                                        quantity: m.qty,
+                                        unitPrice: m.avgCost,
+                                        isLabor: true
+                                    })),
+                            ]);
+                            // Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            setStep("details");
+                        },
+                    },
+                ]
+            );
+        } else {
+            setStep("details");
+        }
+    };
+
+    if (step === "photo") {
+        return (
+            <View className="flex-1 bg-background">
+                <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: insets.top + 16}}>
+                    <TouchableOpacity onPress={() => router.back()}>
+                        <Feather name="x" size={24} color=""/>
+                    </TouchableOpacity>
+                    <Text className="text-foreground text-[17px] font-bold">
+                        New Quote
+                    </Text>
+                    <View className="w-6"/>
                 </View>
 
-                {/* Client Info */}
-                <View className="px-6 pt-6">
-                    <Text className="text-lg font-semibold mb-4">Client Information</Text>
-                    <TextInput
-                        className="bg-white border border-gray-300 rounded-2xl px-5 py-4 mb-3 text-lg"
-                        placeholder="Client Name"
-                        value={clientName}
-                        onChangeText={setClientName}
-                    />
-                    <TextInput
-                        className="bg-white border border-gray-300 rounded-2xl px-5 py-4 text-lg"
-                        placeholder="Phone Number"
-                        value={clientPhone}
-                        onChangeText={setClientPhone}
-                        keyboardType="phone-pad"
-                    />
-                </View>
+                <ScrollView contentContainerClassName="p-4 gap-4">
+                    <View className="bg-secondary-foreground rounded-[20px] p-8 items-center gap-3">
+                        <Feather name="camera" size={40} color="#94A3B8"/>
+                        <Text className="text-[22px] font-extrabold text-white">Photo → Quote</Text>
+                        <Text className="text-sm text-center leading-5 text-slate-400">
+                            Take or upload photos of the job. We&#39;ll suggest the right template automatically.
+                        </Text>
+                    </View>
 
-                {/* Line Items Section */}
-                <View className="px-6 pt-8">
-                    <View className="flex-row justify-between mb-4">
-                        <Text className="text-lg font-semibold">Line Items</Text>
-                        <TouchableOpacity onPress={() => {
-                            addLineItem({description: '', quantity: 1, unitPrice: 0, isLabor: true});
-                        }} className="bg-green-100 p-2 rounded-xl">
-                            <Plus size={24} color="#15803d"/>
+                    {photos.length > 0 && (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="my-2">
+                            {photos.map((uri, i) => (
+                                <View key={i} className="mr-2.5 relative">
+                                    <Image source={{uri}} className="w-[100px] h-[100px] rounded-[10px]"/>
+                                    <TouchableOpacity
+                                        className="bg-destructive absolute top-1 right-1 w-5 h-5 rounded-full items-center justify-center"
+                                        onPress={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
+                                    >
+                                        <Feather name="x" size={12} color="#fff"/>
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                        </ScrollView>
+                    )}
+
+                    <View className="flex-row gap-3">
+                        <TouchableOpacity
+                            className="bg-card flex-1 rounded-[14px] border p-5 items-center gap-2.5"
+                            onPress={takePhoto}
+                            activeOpacity={0.8}
+                        >
+                            <Feather name="camera" size={24} color="primary"/>
+                            <Text className="text-foreground text-[15px] font-semibold">
+                                Camera
+                            </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            className="bg-card flex-1 rounded-[14px] border p-5 items-center gap-2.5"
+                            onPress={pickPhoto}
+                            activeOpacity={0.8}
+                        >
+                            <Feather name="image" size={24} color="primary"/>
+                            <Text className="text-foreground text-[15px] font-semibold">
+                                Gallery
+                            </Text>
                         </TouchableOpacity>
                     </View>
 
-                    {lineItems.map((item, index) => (
-                        <View key={item.id} className="bg-white p-5 rounded-3xl mb-4">
+                    <View className="gap-2">
+                        <Text className=" text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
+                            Job Description (optional)
+                        </Text>
+                        <TextInput
+                            className="text-foreground bg-card border rounded-[12px] px-4 py-3 text-[15px]"
+                            value={jobName}
+                            onChangeText={setJobName}
+                            placeholder="e.g. Faucet replacement, Drywall patch..."
+                            // placeholderTextColor={colors.mutedForeground}
+                        />
+                        <Text className="text-muted-foreground text-xs leading-[17px]">
+                            We&#39;ll suggest a matching template based on your description
+                        </Text>
+                    </View>
 
-                            <View className="flex-row justify-between">
-                                <Text className="font-medium">Item #{index + 1}</Text>
-                                <TouchableOpacity onPress={() => removeLineItem(item.id)}>
-                                    <Trash2 size={20} color="#ef4444"/>
+                    <TouchableOpacity
+                        className="bg-primary flex-row items-center justify-center gap-2 rounded-[14px] p-4"
+                        onPress={suggestTemplate}
+                        activeOpacity={0.85}
+                    >
+                        <Text className="text-white text-base font-bold">
+                            {photos.length > 0 || jobName ? "Suggest Template & Continue" : "Skip to Quote Builder"}
+                        </Text>
+                        <Feather name="arrow-right" size={18} color="#fff"/>
+                    </TouchableOpacity>
+                </ScrollView>
+            </View>
+        );
+    }
+
+    return (
+        <KeyboardAvoidingView
+            className="flex-1 bg-background"
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+            <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: insets.top + 16}}>
+                <TouchableOpacity onPress={() => setStep("photo")}>
+                    <Feather name="arrow-left" size={24} color=""/>
+                </TouchableOpacity>
+                <Text className="text-foreground text-[17px] font-bold">
+                    Quote Details
+                </Text>
+                <TouchableOpacity onPress={handleSave}>
+                    <Text className="text-primary text-base font-bold">
+                        Save
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            <ScrollView
+                className="p-4"
+                contentContainerStyle={{paddingBottom: 100}}
+                keyboardShouldPersistTaps="handled"
+            >
+                {photos.length > 0 && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="my-2">
+                        {photos.map((uri, i) => (
+                            <Image key={i} source={{uri}} className="mr-2.5 w-[100px] h-[100px] rounded-[10px]"/>
+                        ))}
+                    </ScrollView>
+                )}
+
+                <View className="mb-4 gap-2">
+                    <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
+                        Job Name *
+                    </Text>
+                    <TextInput
+                        className="text-foreground bg-card border border-zinc-300 rounded-[12px] px-4 py-3 text-[15px]"
+                        value={jobName}
+                        onChangeText={setJobName}
+                        placeholder="e.g. Faucet Replacement"
+                        // placeholderTextColor={colors.mutedForeground}
+                    />
+                </View>
+
+                {/* Clients */}
+                <View className="mb-4 gap-2">
+                    <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
+                        Client *
+                    </Text>
+                    {clients.length === 0 ? (
+                        <TouchableOpacity
+                            className="rounded-[12px] border border-dashed border-primary p-3.5 items-center"
+                            onPress={() => router.push("/(tabs)/clients")}
+                        >
+                            <Text className="text-primary text-[15px] font-semibold">
+                                Add a client first
+                            </Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            {clients.map((c) => (
+                                <TouchableOpacity
+                                    key={c.id}
+                                    className="mr-2 rounded-full border px-3.5 py-2"
+                                    // style={{
+                                    //     backgroundColor: selectedClientId === c.id ? colors.primary : colors.card,
+                                    //     borderColor: selectedClientId === c.id ? colors.primary : colors.border,
+                                    // }}
+                                    onPress={() => setSelectedClientId(c.id)}
+                                >
+                                    <Text
+                                        className="text-sm font-semibold"
+                                        // style={{color: selectedClientId === c.id ? "#fff" : colors.foreground}}
+                                    >
+                                        {c.name}
+                                    </Text>
                                 </TouchableOpacity>
-                            </View>
+                            ))}
+                        </ScrollView>
+                    )}
+                </View>
 
-                            {/* Photo Section */}
+                {/* Line Items */}
+                <View className="mb-4 gap-2">
+                    <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
+                        Line Items
+                    </Text>
+                    {lineItems?.map((li, idx) => (
+                        <View
+                            key={idx}
+                            className="bg-card mb-2 rounded-[12px] border border-zinc-300 p-3 gap-2"
+                        >
                             <TouchableOpacity
                                 onPress={async () => {
                                     // We'll add the actual picker function below
@@ -269,100 +481,117 @@ export default function NewQuote() {
                                     });
 
                                     if (!result.canceled && result.assets && result.assets[0]) {
-                                        updateLineItem(item.id, {photoUri: result.assets[0].uri});
+                                        updateLineItem(idx, "photoUri",  result.assets[0].uri);
                                     }
                                 }}
                                 className="mt-4 h-48 bg-gray-100 rounded-2xl overflow-hidden border border-dashed border-gray-400 flex items-center justify-center"
                             >
-                                {item.photoUri ? (
+                                {li.photoUri ? (
                                     <Image
-                                        source={{uri: item.photoUri}}
+                                        source={{uri: li.photoUri}}
                                         className="w-full h-full"
-                                        resizeMode="cover"
+                                        contentFit="cover"
                                     />
                                 ) : (
                                     <View className="items-center">
-                                        <Camera size={40} color="#6b7280"/>
+                                        <Feather name="camera" size={24} color="#6b7280"/>
                                         <Text className="text-gray-500 mt-2 text-sm">Tap to take Before Photo</Text>
                                     </View>
                                 )}
                             </TouchableOpacity>
 
                             <TextInput
-                                className="border border-gray-300 rounded-xl px-4 py-3 mt-3"
+                                className="text-foreground border border-zinc-300 text-sm font-semibold"
+                                value={li.description}
+                                onChangeText={(v) => updateLineItem(idx, "description", v)}
                                 placeholder="Description"
-                                value={item.description}
-                                onChangeText={(text) => updateLineItem(item.id, {description: text})}
+                                // placeholderTextColor={colors.mutedForeground}
                             />
-
-                            <View className="flex-row gap-3 mt-3">
-                                <View className="flex-1">
-                                    <Text className="text-xs text-gray-500 mb-1">QTY</Text>
-                                    <TextInput
-                                        className="bg-gray-100 rounded-xl px-4 py-3 text-center"
-                                        value={item.quantity.toString()}
-                                        onChangeText={(text) => updateLineItem(item.id, {quantity: parseInt(text) || 1})}
-                                        keyboardType="numeric"
-                                    />
-                                </View>
-                                <View className="flex-1">
-                                    <Text className="text-xs text-gray-500 mb-1">UNIT PRICE</Text>
-                                    <TextInput
-                                        className="bg-gray-100 rounded-xl px-4 py-3"
-                                        value={item.unitPrice.toString()}
-                                        onChangeText={(text) => updateLineItem(item.id, {unitPrice: parseFloat(text) || 0})}
-                                        keyboardType="decimal-pad"
-                                    />
-                                </View>
+                            <View className="flex-row items-center gap-1.5">
+                                <TextInput
+                                    className="text-foreground w-12 rounded-[8px] border border-zinc-300  px-2 py-1.5 text-center text-[13px]"
+                                    value={String(li.quantity)}
+                                    onChangeText={(v) => updateLineItem(idx, "quantity", parseFloat(v) || 0)}
+                                    keyboardType="decimal-pad"
+                                    placeholder="Qty"
+                                    // placeholderTextColor={colors.mutedForeground}
+                                />
+                                <Text className="text-sm text-muted-foreground">
+                                    ×
+                                </Text>
+                                <TextInput
+                                    className="text-foreground flex-1 rounded-[8px] border border-zinc-300  px-2 py-1.5 text-[13px]"
+                                    value={String(li.unitPrice)}
+                                    onChangeText={(v) => updateLineItem(idx, "unitPrice", parseFloat(v) || 0)}
+                                    keyboardType="decimal-pad"
+                                    placeholder="Price"
+                                    // placeholderTextColor={colors.mutedForeground}
+                                />
+                                <Text className="text-primary min-w-[46px] text-right text-sm font-bold">
+                                    =${(li?.quantity * li?.unitPrice).toFixed(0)}
+                                </Text>
+                                <TouchableOpacity onPress={() => removeLineItem(idx)}>
+                                    <Feather name="trash-2" size={16} color=""/>
+                                </TouchableOpacity>
                             </View>
                         </View>
                     ))}
+
+                    <TouchableOpacity
+                        className="flex-row items-center justify-center gap-2 rounded-[12px] border border-dashed p-3"
+                        onPress={addLineItem}
+                    >
+                        <Feather name="plus" size={16} color="primary"/>
+                        <Text className="text-primary text-sm font-semibold">
+                            Add Line Item
+                        </Text>
+                    </TouchableOpacity>
                 </View>
 
-                <View className="px-6 pt-4 pb-20">
-                    <Text className="text-lg font-semibold mb-3">Notes</Text>
+                <View className="mb-4 gap-2">
+                    <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
+                        Notes
+                    </Text>
                     <TextInput
-                        className="bg-white border border-gray-300 rounded-3xl px-5 py-4 h-32"
-                        placeholder="Additional notes..."
+                        className="text-foreground bg-card border border-zinc-300 rounded-[12px] px-4 py-3 text-[15px] min-h-[90px]"
+                        style={{
+                            textAlignVertical: "top",
+                        }}
                         value={notes}
                         onChangeText={setNotes}
+                        placeholder="Job details, scope, special conditions..."
+                        // placeholderTextColor={colors.mutedForeground}
                         multiline
+                        numberOfLines={4}
                     />
                 </View>
-            </ScrollView>
 
-            {/* Bottom Bar with PDF Generate + Share */}
-            <View className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-5">
-                <View className="flex-row justify-between items-center mb-4">
-                    <View>
-                        <Text className="text-gray-500 text-sm">Total Estimate</Text>
-                        <Text className="text-4xl font-bold text-green-600">${total}</Text>
-                    </View>
-
-                    <TouchableOpacity
-                        onPress={generateAndSharePDF}
-                        disabled={lineItems.length === 0 || !clientName.trim()}
-                        className={`px-8 py-4 rounded-2xl flex-row items-center gap-2 ${lineItems.length === 0 || !clientName.trim() ? 'bg-gray-400' : 'bg-blue-600 active:bg-blue-700'}`}
-                    >
-                        <Text className="text-white font-semibold text-xl">Generate & Share PDF</Text>
-                    </TouchableOpacity>
+                <View className="bg-secondary-foreground mb-4 flex-row items-center justify-between rounded-[16px] p-5">
+                    <Text className="text-sm font-semibold" style={{color: "#94A3B8"}}>
+                        Quote Total
+                    </Text>
+                    <Text className="text-[28px] font-extrabold tracking-[-0.5px]" style={{color: "#fff"}}>
+                        ${total.toFixed(2)}
+                    </Text>
                 </View>
-                    <TouchableOpacity
-                        onPress={saveToSupabase}
-                        disabled={lineItems.length === 0 || !clientName.trim()}
-                        className={`px-8 py-4 rounded-2xl flex-row items-center gap-2 ${lineItems.length === 0 || !clientName.trim() ? 'bg-gray-400' : 'bg-blue-600 active:bg-blue-700'}`}
-                    >
-                        <Text className="text-white text-center font-semibold text-xl">Save to Database</Text>
-                    </TouchableOpacity>
 
-                {/* Optional: Keep a simple Save Draft button if you want */}
                 <TouchableOpacity
-                    onPress={saveQuote}
-                    className="border border-gray-300 py-3 rounded-2xl"
+                    className="bg-primary flex-row items-center justify-center gap-2 rounded-[14px] p-4"
+                    onPress={handleSave}
+                    activeOpacity={0.85}
                 >
-                    <Text className="text-center text-gray-700 font-medium">Save as Draft Only</Text>
+                    <Feather name="file-text" size={18} color="#fff"/>
+                    <Text className="text-white text-base font-bold">Save Quote</Text>
                 </TouchableOpacity>
-            </View>
-        </View>
+                <TouchableOpacity
+                    className="bg-transparent border border-zinc-300 flex-row items-center justify-center gap-2 rounded-[14px] p-4 mt-4"
+                    onPress={handleSave}
+                    activeOpacity={0.85}
+                >
+                    <Feather name="file-text" size={18} color="#000"/>
+                    <Text className="text-foreground text-base font-bold">Genarate Pdf</Text>
+                </TouchableOpacity>
+            </ScrollView>
+        </KeyboardAvoidingView>
     );
 }

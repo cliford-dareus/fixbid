@@ -1,8 +1,9 @@
 import React, {useEffect, useState} from 'react';
 import {View, Text, ScrollView, Image, TouchableOpacity, Alert} from 'react-native';
-import {useLocalSearchParams, useRouter} from 'expo-router';
+import {useLocalSearchParams} from 'expo-router';
 import {useStripe} from '@stripe/stripe-react-native';
 import {supabase} from "@/lib/supabase";
+import {useProfile} from "@/context/profile-context";
 
 interface LineItem {
     id: string;
@@ -14,9 +15,8 @@ interface LineItem {
 
 export default function ClientQuoteView() {
     const {id} = useLocalSearchParams<{ id: string }>();
-    const router = useRouter();
     const {initPaymentSheet, presentPaymentSheet} = useStripe();
-
+    const { profile } = useProfile();
     const [quote, setQuote] = useState<any>(null);
     const [loading, setLoading] = useState(true);
 
@@ -28,27 +28,11 @@ export default function ClientQuoteView() {
     const fetchPublicQuote = async () => {
         setLoading(true);
         try {
-            const {data, error} = await supabase
-                .from('quotes')
-                .select(`
-          id,
-          client_name,
-          client_phone,
-          notes,
-          total_amount,
-          status,
-          quote_line_items (
-            description,
-            quantity,
-            unit_price,
-            photo_url
-          )
-        `)
-                .eq('id', id)
-                .single();
-
-            if (error) throw error;
-            setQuote(data);
+            const response = await fetch(
+                `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/public-quote?id=${id}`
+            );
+            const result = await response.json();
+            setQuote(result.quote);
         } catch (error) {
             Alert.alert('Error', 'Could not load quote');
         } finally {
@@ -124,7 +108,12 @@ export default function ClientQuoteView() {
         <ScrollView className="flex-1 bg-white">
             <View className="bg-blue-600 pt-12 pb-8 px-6">
                 <Text className="text-white text-4xl font-bold">Your Quote</Text>
-                <Text className="text-blue-100 mt-2">From Cliford Dareus • Handyman</Text>
+                {profile && (
+                    <Text className="text-blue-100 mt-1 text-lg">
+                        From {profile.business_name || profile.full_name} • Handyman
+                        {'\n'}{profile.phone}
+                    </Text>
+                )}
             </View>
 
             <View className="px-6 pt-8">
@@ -135,7 +124,7 @@ export default function ClientQuoteView() {
 
                 {/* Line Items */}
                 <View className="mt-10">
-                    {quote.quote_line_items?.map((item: LineItem, index: number) => (
+                    {quote.line_items?.map((item: LineItem, index: number) => (
                         <View key={index} className="mb-8 bg-gray-50 p-5 rounded-3xl">
                             <Text className="font-semibold text-lg">{item.description}</Text>
                             <Text className="text-xl text-green-600 mt-2">

@@ -7,6 +7,8 @@ import * as Sharing from 'expo-sharing';
 import {supabase} from "@/lib/supabase";
 import {useStripe} from '@stripe/stripe-react-native';
 import {WebView} from 'react-native-webview'; // if you want in-app preview
+import {useProfile} from "@/context/profile-context";
+import * as Clipboard from 'expo-clipboard';
 
 interface LineItem {
     id: string;
@@ -17,7 +19,7 @@ interface LineItem {
     photo_url?: string;
 }
 
-interface QuoteDetail {
+interface QuoteDetailType {
     id: string;
     client_name: string;
     client_phone?: string;
@@ -31,26 +33,24 @@ interface QuoteDetail {
 export default function QuoteDetail() {
     const {id} = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
-    const [quote, setQuote] = useState<QuoteDetail | null>(null);
+    const {profile} = useProfile();
+    const [quote, setQuote] = useState<QuoteDetailType | null>(null);
     const [loading, setLoading] = useState(true);
     const {initPaymentSheet, presentPaymentSheet} = useStripe();
 
     const sendToClient = async () => {
         if (!quote) return;
 
-        // For MVP: Generate a simple deep link or public URL
-        // In production: Create a signed URL or store a public quote token in DB
-        const publicLink = `https://yourdomain.com/quote/${quote.id}`; // We'll simulate for now
+        const publicLink = `${process.env.EXPO_PUBLIC_SITE_URL}/quotes/client-view/${quote.id}`;
+
+        await Clipboard.setStringAsync(publicLink);
 
         Alert.alert(
-            'Quote Ready to Send',
-            `Send this link to ${quote.client_name}:\n\n${publicLink}\n\nThey can view, approve, and pay deposit.`,
+            "Link Ready!",
+            `Send this link to ${quote.client_name}:\n\n${publicLink}\n\nThey can open it on any phone or computer to view the quote, approve, and pay the deposit.`,
             [
-                {
-                    text: 'Copy Link', onPress: () => {/* Use Clipboard */
-                    }
-                },
-                {text: 'Simulate Client View', onPress: () => showClientPreview(quote)},
+                {text: "Copy Link", onPress: () => Alert.alert("Copied!")},
+                {text: "Test Link", onPress: () => router.push(`/quotes/client-view/${quote.id}`)},
             ]
         );
     };
@@ -151,9 +151,15 @@ export default function QuoteDetail() {
               </style>
             </head>
             <body>
-              <h1>FixBid Handyman - Quote</h1>
-              <p style="text-align:center;">Cliford Dareus • Miramar, FL • ${new Date().toLocaleDateString()}</p>
-              
+                 <div class="header">
+                    <h1>FixBid Handyman Quote</h1>
+                    ${profile ? `
+                      <p><strong>${profile.business_name || profile.full_name}</strong></p>
+                      <p>${profile.phone} • ${profile.address || 'South Florida'}</p>
+                    ` : ''}
+                    <p>Date: ${new Date().toLocaleDateString()}</p>
+                  </div>
+                  
               <h2>Client: ${quote.client_name}</h2>
               ${quote.client_phone ? `<p>Phone: ${quote.client_phone}</p>` : ''}
               
@@ -265,7 +271,8 @@ export default function QuoteDetail() {
             {/* Action Buttons */}
             <View className="p-6 bg-white border-t border-gray-200 flex-row gap-3">
                 <TouchableOpacity
-                    onPress={() => router.push(`/(tabs)/quotes/client-view/${id}`)}
+                    // onPress={() => router.push(`/(tabs)/quotes/client-view/${id}`)}
+                    onPress={sendToClient}
                     className="flex-1 bg-blue-600 py-4 rounded-2xl"
                 >
                     <Text className="text-white text-center font-semibold text-lg">Send to Client</Text>

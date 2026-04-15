@@ -1,78 +1,29 @@
 import React, { useState } from 'react';
-import {View, Text, TouchableOpacity, ScrollView, TextInput, Alert} from 'react-native';
-import { useRouter } from 'expo-router';
+import {View, Text, TouchableOpacity, ScrollView, TextInput, Alert, Platform, FlatList} from 'react-native';
+import {router, useRouter} from 'expo-router';
 import { Plus, Search } from 'lucide-react-native';
 import {useQuote} from "@/context/quote-context";
-
-const initialTemplates = [
-    {
-        id: '1',
-        name: 'Replace Faucet Cartridge',
-        category: 'Plumbing',
-        description: 'Single handle cartridge replacement',
-        avgTimeMinutes: 45,
-        baseLaborPrice: 85,
-        materialCost: 25,
-    },
-    {
-        id: '2',
-        name: 'Toilet Repair - Running',
-        category: 'Plumbing',
-        description: 'Fix running toilet (flapper or fill valve)',
-        avgTimeMinutes: 30,
-        baseLaborPrice: 75,
-        materialCost: 15,
-    },
-    {
-        id: '3',
-        name: 'Drywall Patch (Small)',
-        category: 'Drywall',
-        description: '12x12 inch hole repair and paint',
-        avgTimeMinutes: 60,
-        baseLaborPrice: 95,
-        materialCost: 20,
-    },
-    {
-        id: '4',
-        name: 'Install Floating Shelf',
-        category: 'Carpentry',
-        description: 'Single 24" shelf with brackets',
-        avgTimeMinutes: 40,
-        baseLaborPrice: 65,
-        materialCost: 30,
-    },
-    {
-        id: '5',
-        name: 'Garbage Disposal Replacement',
-        category: 'Plumbing',
-        description: 'Remove old + install new unit',
-        avgTimeMinutes: 75,
-        baseLaborPrice: 125,
-        materialCost: 90,
-    },
-    {
-        id: '6',
-        name: 'Door Hinge Adjustment',
-        category: 'Carpentry',
-        description: 'Tighten or replace hinges on interior door',
-        avgTimeMinutes: 25,
-        baseLaborPrice: 55,
-        materialCost: 10,
-    },
-    // Add more Florida-specific ones later (hurricane prep, etc.)
-];
+import {calculateJobCost, CATEGORIES, JOB_TEMPLATES, JobTemplate} from "@/data/templates";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
+import {Feather} from "@expo/vector-icons";
+import {cn} from "@/lib/utils";
 
 export default function TemplatesScreen() {
     const { addLineItem } = useQuote();
     const router = useRouter();
-    const [searchTerm, setSearchTerm] = useState('');
-    const [templates] = useState(initialTemplates);
+    const insets = useSafeAreaInsets();
+    const [search, setSearch] = useState("");
+    const [activeCategory, setActiveCategory] = useState<string | null>(null);
+    const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
-
-    const filteredTemplates = templates.filter(t =>
-        t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.category.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filtered = JOB_TEMPLATES.filter((t) => {
+        const matchSearch =
+            !search ||
+            t.name.toLowerCase().includes(search.toLowerCase()) ||
+            t.category.toLowerCase().includes(search.toLowerCase());
+        const matchCat = !activeCategory || t.category === activeCategory;
+        return matchSearch && matchCat;
+    });
 
     const addToQuote = (template: any) => {
         addLineItem({
@@ -87,67 +38,140 @@ export default function TemplatesScreen() {
     };
 
     return (
-        <View className="flex-1 bg-gray-50">
-            <View className="bg-white px-6 py-4 border-b border-gray-200">
-                <Text className="text-2xl font-bold">Job Templates</Text>
-                <Text className="text-gray-500">Tap to add to new quote</Text>
-            </View>
-
-            {/* Search Bar */}
-            <View className="px-6 pt-6">
-                <View className="flex-row items-center bg-white rounded-2xl px-4 border border-gray-300">
-                    <Search size={20} color="#6b7280" />
+        <View className="flex-1 bg-background">
+            {/* Header */}
+            <View style={{ paddingTop: topPad + 16 }} className="px-5 py-2">
+                <Text className="text-foreground text-2xl font-extrabold -tracking-tighter mb-[2px]">Job Templates</Text>
+                <Text className="text-muted-foreground text-xs mb-[14px]">
+                    {JOB_TEMPLATES.length} templates ready
+                </Text>
+                <View className="bg-card border border-zinc-300 flex-row items-center gap-3 rounded-2xl px-4 py-2 mb-3">
+                    <Feather name="search" size={16} color="white"/>
                     <TextInput
-                        className="flex-1 py-4 px-3 text-base"
-                        placeholder="Search templates... (faucet, drywall...)"
-                        value={searchTerm}
-                        onChangeText={setSearchTerm}
+                        className="flex-1 text-sm"
+                        placeholder="Search templates..."
+                        value={search}
+                        onChangeText={setSearch}
                     />
+                    {search.length > 0 && (
+                        <TouchableOpacity onPress={() => setSearch("")}>
+                            <Feather name="x" size={16} />
+                        </TouchableOpacity>
+                    )}
                 </View>
+
+                {/* Category Chips */}
+                <FlatList
+                    horizontal
+                    data={["All", ...CATEGORIES]}
+                    keyExtractor={(item) => item}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{
+                        gap: 8, marginTop: 8,
+                    }}
+                    renderItem={({ item }) => {
+                        const isActive = item === "All" ? !activeCategory : activeCategory === item;
+                        return (
+                            <TouchableOpacity
+                                className={cn("gap-2 mt-2 border border-zinc-300 px-4 py-2 rounded-3xl",
+                                    isActive? "bg-primary border-primary" : "bg-card"
+                                    )}
+                                onPress={() => setActiveCategory(item === "All" ? null : item)}
+                                activeOpacity={0.8}
+                            >
+                                <Text className={cn("text-sm font-semibold", isActive? "text-primary-foreground" : "text-foreground")}
+                                >
+                                    {item}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    }}
+                />
             </View>
 
-            <ScrollView className="px-6 pt-6">
-                {filteredTemplates.map((template) => (
-                    <TouchableOpacity
-                        key={template.id}
-                        onPress={() => addToQuote(template)}
-                        className="bg-white p-5 rounded-3xl mb-4 active:opacity-90"
-                    >
-                        <View className="flex-row justify-between">
-                            <View className="flex-1">
-                                <Text className="text-lg font-semibold">{template.name}</Text>
-                                <Text className="text-blue-600 text-sm mt-1">{template.category}</Text>
-                                <Text className="text-gray-600 mt-2 text-sm">{template.description}</Text>
-                            </View>
-
-                            <View className="items-end">
-                                <Text className="text-2xl font-bold text-green-600">
-                                    ${template.baseLaborPrice + template.materialCost}
-                                </Text>
-                                <Text className="text-xs text-gray-500 mt-1">
-                                    {template.avgTimeMinutes} min
-                                </Text>
-                            </View>
-                        </View>
-
-                        <TouchableOpacity
-                            onPress={() => addToQuote(template)}
-                            className="mt-4 bg-blue-100 py-3 rounded-2xl"
-                        >
-                            <Text className="text-blue-700 text-center font-medium">Add to Quote</Text>
-                        </TouchableOpacity>
-                    </TouchableOpacity>
-                ))}
-
-                {filteredTemplates.length === 0 && (
-                    <Text className="text-center text-gray-500 mt-10">No templates found</Text>
-                )}
-            </ScrollView>
+            {/* Templates List */}
+            <FlatList
+                data={filtered}
+                keyExtractor={(t) => t.id}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 }}
+                renderItem={({ item }) => <TemplateCard template={item}/>}
+                ListEmptyComponent={
+                    <View className="flex-row items-center justify-center pt-[80px] gap-[12px]">
+                        <Feather name="search" size={32} color=""/>
+                        <Text className="text-foreground text-[15px]">
+                            No templates found
+                        </Text>
+                    </View>
+                }
+            />
 
             {/* Floating Add Button (for custom template later) */}
             <TouchableOpacity className="absolute bottom-8 right-8 bg-blue-600 w-16 h-16 rounded-full items-center justify-center shadow-lg">
                 <Plus size={32} color="white" />
             </TouchableOpacity>
         </View>
+    );
+};
+
+function TemplateCard({
+                          template,
+                      }: {
+    template: JobTemplate;
+}) {
+    const cost = calculateJobCost(template);
+    const diffColor =
+        template.difficulty === "easy"
+            ? "#16A34A"
+            : template.difficulty === "medium"
+                ? "#D97706"
+                : "#DC2626";
+
+    return (
+        <TouchableOpacity
+            className="bg-card rounded-3xl mb-4 gap-2 p-5"
+            onPress={() => router.push(`/template/${template.id}`)}
+            activeOpacity={0.8}
+        >
+            <View className="flex-row justify-between items-start">
+                <View className="flex-1 gap-[2px]">
+                    <Text className="text-primary text-[11px] font-semibold tracking-wider" style={{textTransform: "uppercase"}}>
+                        {template.category}
+                    </Text>
+                    <Text className="text-foreground font-bold" numberOfLines={1}>
+                        {template.name}
+                    </Text>
+                </View>
+                <View className="items-end gap-1">
+                    <Text className="text-foreground text-[18px] font-extrabold">
+                        ${cost.suggested}
+                    </Text>
+                    <View className="px-2 py-[2px] rounded-5 bg-card" style={{backgroundColor: diffColor + 18}}>
+                        <Text className="font-semibold text-[11px]" style={{ color: diffColor}}>
+                            {template.difficulty}
+                        </Text>
+                    </View>
+                </View>
+            </View>
+            <View className="flex-row gap-4">
+                <View className="flex-row items-center gap-1">
+                    <Feather name="clock" size={12} color="white" />
+                    <Text className="text-xs text-muted-foreground">
+                        {template.timeEstimateHours}h
+                    </Text>
+                </View>
+                <View className="flex-row items-center gap-1">
+                    <Feather name="package" size={12} color="white"/>
+                    <Text className="text-xs text-muted-foreground">
+                        {template.materials.length} materials
+                    </Text>
+                </View>
+                <View className="flex-row items-center gap-1">
+                    <Feather name="trending-up" size={12} color="white"/>
+                    <Text className="text-xs text-muted-foreground">
+                        {template.commonUpsells.length} upsells
+                    </Text>
+                </View>
+            </View>
+        </TouchableOpacity>
     );
 }
