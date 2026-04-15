@@ -1,14 +1,18 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, Alert} from 'react-native';
+import {View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, Alert, Platform} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Plus, Eye} from 'lucide-react-native';
 import {supabase} from "@/lib/supabase";
 import {useAuth} from "@/context/auth-context";
+import {Feather} from "@expo/vector-icons";
+import {BlurView} from "expo-blur";
+import useThemedNavigation from "@/hooks/use-navigation-theme";
 
 interface Quote {
     id: string;
     client_name: string;
     total_amount: number;
+    // job_name: string;
     status: string;
     created_at: string;
     line_items?: Array<{
@@ -23,6 +27,10 @@ export default function QuotesList() {
     const {user} = useAuth();
     const [quotes, setQuotes] = useState<Quote[]>([]);
     const [loading, setLoading] = useState(true);
+
+    const isIOS = Platform.OS === "ios";
+    const isWeb = Platform.OS === "web";
+    const {isDark, colors} = useThemedNavigation()
 
     const fetchQuotes = async () => {
         if (!user) return;
@@ -76,16 +84,33 @@ export default function QuotesList() {
     }
 
     return (
-        <View className="flex-1 bg-gray-50">
-            <View className="bg-white px-6 py-4 border-b border-gray-200 flex-row justify-between items-center">
-                <Text className="text-2xl font-bold">My Quotes</Text>
+        <View className="flex-1 bg-background pt-[100px]">
+            <View className="absolute top-14 h-[60px] w-full flex-row justify-between items-center px-6">
                 <TouchableOpacity
-                    onPress={() => router.push('/(tabs)/quotes/new')}
-                    className="bg-blue-600 px-5 py-2 rounded-2xl flex-row items-center gap-2"
-                >
-                    <Plus size={20} color="white"/>
-                    <Text className="text-white font-semibold">New</Text>
+                    className="bg-secondary-foreground w-14 h-14 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
+                    <Feather name="user" size={24} color="white"/>
                 </TouchableOpacity>
+
+                {isIOS ? (
+                    <BlurView
+                        intensity={100}
+                        tint={isDark ? "dark" : "light"}
+                        className="absolute inset-0"
+                    />
+                ) : isWeb ? (
+                    <View className="absolute inset-0 bg-background"/>
+                ) : null}
+            </View>
+
+            <View className="px-6 py-4 border-b border-gray-200 flex-row justify-between items-center">
+                <Text className="text-2xl font-bold">My Quotes</Text>
+                {/*<TouchableOpacity*/}
+                {/*    onPress={() => router.push('/(tabs)/quotes/new')}*/}
+                {/*    className="bg-blue-600 px-5 py-2 rounded-2xl flex-row items-center gap-2"*/}
+                {/*>*/}
+                {/*    <Plus size={20} color="white"/>*/}
+                {/*    <Text className="text-white font-semibold">New</Text>*/}
+                {/*</TouchableOpacity>*/}
             </View>
 
             <FlatList

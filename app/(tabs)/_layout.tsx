@@ -1,52 +1,32 @@
 import {router, Tabs} from 'expo-router';
-import {FileText, Home, List, LogOut, Toolbox, User} from 'lucide-react-native';
-import {Platform, View} from 'react-native';
+import {
+    Activity,
+    ArrowUpRight,
+    BarChart3,
+    FileText,
+    Home,
+    List,
+    LogOut,
+    MessageCircle,
+    Plus,
+    Toolbox,
+    Trophy,
+    User, Users
+} from 'lucide-react-native';
+import {Button, Modal, Platform, Pressable, Text, TouchableOpacity, View} from 'react-native';
 import {useAuth} from "@/context/auth-context";
-import {useEffect} from "react";
+import React, {useEffect, useState} from "react";
 import {BlurView} from "expo-blur";
 import useThemedNavigation from "@/hooks/use-navigation-theme";
-import {isLiquidGlassAvailable} from "expo-glass-effect";
-import {Icon, Label, NativeTabs} from "expo-router/unstable-native-tabs";
 
-function NativeTabLayout() {
-    return (
-        <NativeTabs>
-            <NativeTabs.Trigger name="index">
-                <Icon sf={{default: "house", selected: "house.fill"}}/>
-                <Label>Dashboard</Label>
-            </NativeTabs.Trigger>
-            <NativeTabs.Trigger name="quotes">
-                <Icon sf={{default: "text.page", selected: "text.page.fill"}}/>
-                <Label>Quotes</Label>
-            </NativeTabs.Trigger>
-            <NativeTabs.Trigger name="templates">
-                <Icon sf={{default: "doc.text", selected: "doc.text.fill"}}/>
-                <Label>Templates</Label>
-            </NativeTabs.Trigger>
 
-            {/*<NativeTabs.Trigger name="profile">*/}
-            {/*    <Icon sf={{default: "person.2", selected: "person.2.fill"}}/>*/}
-            {/*    <Label>Profile</Label>*/}
-            {/*</NativeTabs.Trigger>*/}
-            {/*<NativeTabs.Trigger name="calculator">*/}
-            {/*    <Icon sf={{default: "chart.bar", selected: "chart.bar.fill"}}/>*/}
-            {/*    <Label>Margins</Label>*/}
-            {/*</NativeTabs.Trigger>*/}
-            <NativeTabs.Trigger name="new"  options={{
-
-            }}>
-                <Icon sf={{default: "plus", selected: "plus.app.fill"}}/>
-                <Label>Search</Label>
-            </NativeTabs.Trigger>
-        </NativeTabs>
-    );
-}
-
-function ClassicTabLayout() {
+export default function ClassicTabLayout() {
     const {user, session, signOut} = useAuth();
     const isIOS = Platform.OS === "ios";
     const isWeb = Platform.OS === "web";
     const {isDark, colors} = useThemedNavigation()
+
+    const [menuVisible, setMenuVisible] = useState(false);
 
     useEffect(() => {
         if (user && session) {
@@ -55,73 +35,194 @@ function ClassicTabLayout() {
     }, [session, user]);
 
     return (
-        <Tabs
-            screenOptions={{
-                tabBarActiveTintColor: '#3b82f6',
-                tabBarInactiveTintColor: '#6b7280',
-                headerShown: true,
-                tabBarStyle: {
-                    position: "absolute",
-                    backgroundColor: isIOS ? "transparent" : colors.background,
-                    borderTopWidth: isWeb ? 1 : 0,
-                    borderTopColor: colors.border,
-                    elevation: 0,
-                    ...(isWeb ? {height: 84} : {}),
-                },
-                tabBarBackground: () =>
-                    isIOS ? (
-                        <BlurView
-                            intensity={100}
-                            tint={isDark ? "dark" : "light"}
-                            className="absolute inset-0"
-                        />
-                    ) : isWeb ? (
-                        <View className="absolute inset-0 bg-background"/>
-                    ) : null,
-            }}
-        >
-            <Tabs.Screen
-                name="index"
-                options={{
-                    title: 'Dashboard',
-                    tabBarIcon: ({color}) => <Home size={24} color={color}/>, // import Home from lucide-react-native
+        <>
+            <Tabs
+                tabBar={(props) => (
+                    <CustomTabBar
+                        {...props}
+                        isMenuOpen={menuVisible}
+                        onPlusPress={() => setMenuVisible(!menuVisible)}
+                    />
+                )}
+                screenOptions={{
+                    tabBarActiveTintColor: '#3b82f6',
+                    tabBarInactiveTintColor: '#6b7280',
+                    headerShown: true,
+                    tabBarStyle: {
+                        position: "absolute",
+                        backgroundColor: isIOS ? "transparent" : colors.background,
+                        borderTopWidth: isWeb ? 1 : 0,
+                        borderTopColor: colors.border,
+                        elevation: 0,
+                        ...(isWeb ? {height: 84} : {}),
+                    },
+                    tabBarBackground: () =>
+                        isIOS ? (
+                            <BlurView
+                                intensity={100}
+                                tint={isDark ? "dark" : "light"}
+                                className="absolute inset-0"
+                            />
+                        ) : isWeb ? (
+                            <View className="absolute inset-0 bg-background"/>
+                        ) : null,
                 }}
-            />
-            <Tabs.Screen
-                name="quotes"
-                options={{
-                    title: 'Quotes',
-                    tabBarIcon: ({color}) => <FileText size={24} color={color}/>,
-                }}
-            />
-            <Tabs.Screen
-                name="templates"
-                options={{
-                    title: 'Templates',
-                    tabBarIcon: ({color}) => <List size={24} color={color}/>,
-                }}
-            />
-            <Tabs.Screen
-                name="profile"
-                options={{
-                    title: 'Profile',
-                    tabBarIcon: ({color}) => <User size={24} color={color}/>
-                }}
-            />
-            {/*<Tabs.Screen*/}
-            {/*    name="jobs"*/}
-            {/*    options={{*/}
-            {/*        title: 'Jobs',*/}
-            {/*        tabBarIcon: ({ color }) => <Toolbox size={24} color={color} />,*/}
-            {/*    }}*/}
-            {/*/>*/}
-        </Tabs>
+            >
+                <Tabs.Screen
+                    name="index"
+                    options={{
+                        headerShown: false,
+                        title: 'Dashboard',
+                        tabBarIcon: ({color}) => <Home size={24} color={color}/>, // import Home from lucide-react-native
+                    }}
+                />
+                <Tabs.Screen
+                    name="quotes"
+                    options={{
+                        headerShown: false,
+                        title: 'Quotes',
+                        tabBarIcon: ({color}) => <FileText size={24} color={color}/>,
+                    }}
+                />
+                <Tabs.Screen
+                    name="templates"
+                    options={{
+                        headerShown: false,
+                        title: 'Templates',
+                        tabBarIcon: ({color}) => <List size={24} color={color}/>,
+                    }}
+                />
+                <Tabs.Screen
+                    name="profile"
+                    options={{
+                        headerShown: false,
+                        title: 'Profile',
+                        tabBarIcon: ({color}) => <User size={24} color={color}/>
+                    }}
+                />
+
+                <Tabs.Screen
+                    name="clients"
+                    options={{
+                        headerShown: false,
+                        title: 'Clients',
+                        tabBarIcon: ({color}) => <User size={24} color={color}/>
+                    }}
+                />
+                {/*<Tabs.Screen*/}
+                {/*    name="jobs"*/}
+                {/*    options={{*/}
+                {/*        title: 'Jobs',*/}
+                {/*        tabBarIcon: ({ color }) => <Toolbox size={24} color={color} />,*/}
+                {/*    }}*/}
+                {/*/>*/}
+            </Tabs>
+
+            {/* The Action Menu Overlay */}
+            {menuVisible && (
+                <ActionMenu onClose={() => setMenuVisible(false)}/>
+            )}
+        </>
     );
 }
 
-export default function TabLayout() {
-    if (isLiquidGlassAvailable()) {
-        return <NativeTabLayout/>;
-    }
-    return <ClassicTabLayout/>;
+// --- The Action Menu Component ---
+function ActionMenu({onClose}: { onClose: () => void }) {
+    return (
+        <Pressable onPress={onClose} className="absolute inset-0 z-40 bg-black/20">
+            <View
+                className="absolute bottom-32 right-6 w-64 overflow-hidden rounded-[32px] border border-white/10 shadow-2xl">
+                <BlurView intensity={80} tint="dark" className="p-4">
+
+                    {/* Section 1 */}
+                    <MenuItem icon={<Activity size={20} color="#22c55e"/>} label="Record Workout"/>
+                    {/*<MenuItem icon={<Utensils size={20} color="#f97316" />} label="Track Calories" showArrow />*/}
+                    {/*<MenuItem icon={<Heart size={20} color="#ef4444" />} label="Track Heart Rate" showArrow />*/}
+                    {/*<MenuItem icon={<Scale size={20} color="#06b6d4" />} label="Log Weight" />*/}
+
+                    {/* Divider */}
+                    <View className="h-[1px] bg-white/10 my-3 mx-2"/>
+
+                    {/* Section 2 */}
+                    <MenuItem icon={<Trophy size={20} color="white"/>} label="Create Quote" onPress="/quotes/new"/>
+                    <MenuItem icon={<User size={20} color="white"/>} label="Create Client"/>
+                    <MenuItem icon={<Users size={20} color="white"/>} label="New Group"/>
+                </BlurView>
+            </View>
+        </Pressable>
+    );
+}
+
+function MenuItem({icon, label, showArrow, onPress}: { icon: any, label: string, showArrow?: boolean, onPress?: any }) {
+    return (
+        <TouchableOpacity
+            onPress={() => router.push(onPress)}
+            className="flex-row items-center justify-between py-3 px-2 active:bg-white/10 rounded-xl">
+            <View className="flex-row items-center">
+                <View className="mr-3">{icon}</View>
+                <Text className="text-white text-lg font-medium">{label}</Text>
+            </View>
+            {showArrow && <ArrowUpRight size={16} color="#9ca3af"/>}
+        </TouchableOpacity>
+    );
+}
+
+function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
+    return (
+        <View className="absolute bottom-5 w-full flex-row items-center justify-center px-5">
+            {/* 1. The Pill-Shaped Container */}
+            <View
+                className="flex-1 flex-row bg-zinc-900/90 border border-zinc-800 rounded-full h-16 items-center justify-around px-2 shadow-lg">
+                {state.routes.filter((route: any) => route.name !== "profile").map((route: any, index: number) => {
+                    const isFocused = state.index === index;
+
+                    const onPress = () => {
+                        const event = navigation.emit({
+                            type: 'tabPress',
+                            target: route.key,
+                            canPreventDefault: true,
+                        });
+                        if (!isFocused && !event.defaultPrevented) {
+                            navigation.navigate(route.name);
+                        }
+                    };
+
+                    // Icon Mapping
+                    const icons: any = {
+                        index: (props: any) => <Home {...props} />,
+                        quotes: (props: any) => <Trophy {...props} />,
+                        templates: (props: any) => <MessageCircle {...props} />,
+                        clients: (props: any) => <BarChart3 {...props} />,
+                    };
+
+                    const Icon = icons[route.name];
+                    console.log(Icon)
+
+                    return (
+                        <TouchableOpacity
+                            key={route.key}
+                            onPress={onPress}
+                            className={`items-center justify-center p-3 rounded-full ${isFocused ? 'bg-zinc-800' : ''}`}
+                        >
+                            {Icon && <Icon
+                                size={24}
+                                color={isFocused ? '#06b6d4' : '#71717a'} // cyan-500 vs zinc-400
+                            />}
+                            {isFocused && <View className="w-1 h-1 bg-cyan-500 rounded-full mt-1"/>}
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+
+            {/* 2. The Separate Floating Action Button */}
+            <TouchableOpacity
+                onPress={onPlusPress}
+                activeOpacity={0.7}
+                className={`ml-4 w-16 h-16 rounded-full items-center justify-center shadow-lg ${isMenuOpen ? 'bg-zinc-800 rotate-45' : 'bg-cyan-600'}`}
+                style={{transform: [{rotate: isMenuOpen ? '45deg' : '0deg'}]}}
+            >
+                <Plus size={32} color="white" strokeWidth={3}/>
+            </TouchableOpacity>
+        </View>
+    );
 }

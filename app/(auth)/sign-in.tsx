@@ -18,6 +18,7 @@ export default function SignIn() {
         }
 
         setLoading(true);
+
         try {
             if (isLogin) {
                 await signIn(email, password);

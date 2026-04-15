@@ -6,9 +6,11 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import {supabase} from "@/lib/supabase";
 import {useStripe} from '@stripe/stripe-react-native';
-import {WebView} from 'react-native-webview'; // if you want in-app preview
+import {WebView} from 'react-native-webview';
 import {useProfile} from "@/context/profile-context";
 import * as Clipboard from 'expo-clipboard';
+import {Feather} from "@expo/vector-icons";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 interface LineItem {
     id: string;
@@ -23,6 +25,7 @@ interface QuoteDetailType {
     id: string;
     client_name: string;
     client_phone?: string;
+    job_name: string;
     notes?: string;
     total_amount: number;
     status: string;
@@ -36,6 +39,7 @@ export default function QuoteDetail() {
     const {profile} = useProfile();
     const [quote, setQuote] = useState<QuoteDetailType | null>(null);
     const [loading, setLoading] = useState(true);
+    const insets = useSafeAreaInsets();
     const {initPaymentSheet, presentPaymentSheet} = useStripe();
 
     const sendToClient = async () => {
@@ -101,6 +105,7 @@ export default function QuoteDetail() {
           id,
           client_name,
           client_phone,
+          job_name,
           notes,
           total_amount,
           status,
@@ -216,75 +221,151 @@ export default function QuoteDetail() {
     }
 
     return (
-        <View className="flex-1 bg-gray-50">
-            {/* Header */}
-            <View className="bg-blue-600 pt-12 pb-6 px-6 flex-row items-center">
-                <TouchableOpacity onPress={() => router.back()} className="mr-4">
-                    <ArrowLeft size={28} color="white"/>
+        <View className="flex-1 bg-background">
+            <View className="flex-row items-center gap-3 px-4 pb-3"
+                  style={{paddingTop: insets.top + 12}}
+            >
+                <TouchableOpacity onPress={() => router.back()}>
+                    <Feather name="arrow-left" size={22} color=""/>
                 </TouchableOpacity>
-                <Text className="text-white text-2xl font-bold flex-1">Quote Details</Text>
-                <TouchableOpacity onPress={regeneratePDF}>
-                    <Download size={28} color="white"/>
-                </TouchableOpacity>
+
+                <Text className="text-foreground flex-1 text-[17px] font-bold" numberOfLines={1}>
+                    {quote.job_name}
+                </Text>
+
+                <View className={`mt-2 px-4 py-1 rounded-full self-end ${
+                    quote.status === 'approved' ? 'bg-green-100' : 'bg-amber-100'
+                }`}>
+                    <Text className={`text-xs font-medium capitalize ${
+                        quote.status === 'approved' ? 'text-green-700' : 'text-amber-700'
+                    }`}>
+                        {quote.status}
+                    </Text>
+                </View>
             </View>
 
-            <ScrollView className="flex-1 px-6 pt-6">
-                <View className="bg-white rounded-3xl p-6 mb-6">
-                    <Text className="text-3xl font-bold">{quote.client_name}</Text>
-                    {quote.client_phone && <Text className="text-gray-600 mt-1">📱 {quote.client_phone}</Text>}
-                    <Text className="text-gray-500 mt-4">
-                        Created: {new Date(quote.created_at).toLocaleDateString()}
+            <ScrollView contentContainerClassName="px-4 pb-28">
+                <View className="bg-secondary-foreground mb-4 rounded-[20px] p-6">
+                    <Text className="text-[11px] font-bold uppercase tracking-[1px] text-slate-400">
+                        QUOTE
                     </Text>
-                    <Text className="text-4xl font-bold text-green-600 mt-6">
-                        ${quote.total_amount}
+                    <Text className="text-[42px] font-black tracking-[-1px] text-white">
+                        ${quote.total_amount.toLocaleString()}
+                    </Text>
+                    <Text className="mt-1 text-[16px] text-slate-400">
+                        {quote.client_name}
+                    </Text>
+                    <Text className="text-[13px] text-slate-400">
+                        {quote.client_phone}
+                    </Text>
+                    <Text className="mt-1 text-[13px] text-slate-500">
+                        {formatDate(quote.created_at)}
                     </Text>
                 </View>
 
-                {/* Line Items */}
-                <Text className="text-xl font-semibold mb-4 px-1">Job Details</Text>
-                {quote.line_items.map((item, index) => (
-                    <View key={item.id} className="bg-white rounded-3xl p-5 mb-6">
-                        <Text className="font-semibold text-lg">Item {index + 1}</Text>
-                        <Text className="text-xl mt-2">{item.description}</Text>
-                        <Text className="text-2xl font-bold text-green-600 mt-3">
-                            ${item.unit_price} × {item.quantity} = ${(item.quantity * item.unit_price).toFixed(2)}
+                <View className="bg-card mb-3 rounded-2xl p-4">
+                    <Text className="text-foreground mb-2 text-[14px] font-bold uppercase tracking-[0.5px]">
+                        Line Items
+                    </Text>
+
+                    {quote.line_items.map((li, i) => (
+                        <View
+                            key={i}
+                            className="flex-row items-start justify-between border-b border-zinc-300 py-2.5"
+                        >
+                            <View className="flex-1 gap-0.5">
+                                <Text className="text-foreground text-[14px] font-semibold">
+                                    {li.description}
+                                </Text>
+                                <Text className="text-muted-foreground text-[12px]">
+                                    {li.quantity} × ${li.unit_price.toFixed(2)}
+                                </Text>
+                            </View>
+
+                            <Text className="text-foreground text-[15px] font-bold">
+                                ${(li.quantity * li.unit_price).toFixed(2)}
+                            </Text>
+                        </View>
+                    ))}
+
+                    <View className="mt-1 flex-row items-center justify-between border-t border-zinc-200 pt-3">
+                        <Text className="text-muted-foreground text-[14px] font-semibold">
+                            Total
                         </Text>
-
-                        {item.photo_url && (
-                            <Image
-                                source={{uri: item.photo_url}}
-                                className="w-full h-64 rounded-2xl mt-5"
-                                resizeMode="cover"
-                            />
-                        )}
+                        <Text className="text-primary text-[22px] font-extrabold tracking-[-0.5px]">
+                            ${quote.total_amount.toFixed(2)}
+                        </Text>
                     </View>
-                ))}
+                </View>
 
-                {quote.notes && (
-                    <View className="bg-white rounded-3xl p-6 mb-8">
-                        <Text className="font-semibold mb-3">Notes</Text>
-                        <Text className="text-gray-700">{quote.notes}</Text>
+                {quote.notes ? (
+                    <View
+                        className="bg-card mb-3 rounded-2xl p-4"
+                    >
+                        <Text
+                            className="text-foreground mb-2 text-[14px] font-bold uppercase tracking-[0.5px]"
+                        >
+                            Notes
+                        </Text>
+                        <Text className="text-muted-foreground text-[14px] leading-5">
+                            {quote.notes}
+                        </Text>
+                    </View>
+                ) : null}
+
+                {quote.status === "draft" && (
+                    <TouchableOpacity
+                        className="bg-primary mb-2 flex-row items-center justify-center gap-2 rounded-2xl p-4"
+                        onPress={sendToClient}
+                        activeOpacity={0.85}
+                    >
+                        <Feather name="send" size={18} color="#fff"/>
+                        <Text className="text-[16px] font-bold text-white">Send to Client</Text>
+                    </TouchableOpacity>
+                )}
+
+                {quote.status === "sent" && (
+                    <View className="mb-2 flex-row gap-2.5">
+                        <TouchableOpacity
+                            className="flex-1 items-center rounded-2xl border-[1.5px] border-destructive p-3.5"
+                            // onPress={handleDecline}
+                            activeOpacity={0.85}
+                        >
+                            <Text className="text-destructive text-[15px] font-bold">
+                                Declined
+                            </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            className="bg-success flex-[2] flex-row items-center justify-center gap-1.5 rounded-2xl p-3.5"
+                            // onPress={handleAccept}
+                            activeOpacity={0.85}
+                        >
+                            <Feather name="check" size={18} color="#fff"/>
+                            <Text className="text-[15px] font-bold text-white">Accepted → Job</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {quote.status === "accepted" && (
+                    <View
+                        className="bg-success flex-row items-center gap-2.5 rounded-xl border p-3.5"
+                    >
+                        <Feather name="check-circle" size={20} color=""/>
+                        <Text className="text-success text-[14px] font-semibold">
+                            Quote accepted — converted to a job
+                        </Text>
                     </View>
                 )}
             </ScrollView>
-
-            {/* Action Buttons */}
-            <View className="p-6 bg-white border-t border-gray-200 flex-row gap-3">
-                <TouchableOpacity
-                    // onPress={() => router.push(`/(tabs)/quotes/client-view/${id}`)}
-                    onPress={sendToClient}
-                    className="flex-1 bg-blue-600 py-4 rounded-2xl"
-                >
-                    <Text className="text-white text-center font-semibold text-lg">Send to Client</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    onPress={regeneratePDF}
-                    className="flex-1 bg-green-600 py-4 rounded-2xl"
-                >
-                    <Text className="text-white text-center font-semibold text-lg">PDF Again</Text>
-                </TouchableOpacity>
-            </View>
         </View>
     );
+}
+
+function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+    });
 }

@@ -83,10 +83,10 @@ export default function NewQuote() {
     };
 
     const handleSave = async () => {
-        if (!clientName.trim() || lineItems.length === 0) {
-            Alert.alert('Error', 'Client name and at least one item required');
-            return;
-        }
+        // if (!clientName.trim() || lineItems.length === 0) {
+        //     Alert.alert('Error', 'Client name and at least one item required');
+        //     return;
+        // }
 
         try {
             const {data: {user}} = await supabase.auth.getUser();
@@ -100,8 +100,9 @@ export default function NewQuote() {
                 .from('quotes')
                 .insert({
                     handyman_id: user.id,
-                    client_name: clientName,
-                    client_phone: clientPhone,
+                    client_name: "clientName",
+                    client_phone: "clientPhone",
+                    job_name: jobName,
                     notes: notes,
                     total_amount: total,
                     status: 'draft',
@@ -481,7 +482,7 @@ export default function NewQuote() {
                                     });
 
                                     if (!result.canceled && result.assets && result.assets[0]) {
-                                        updateLineItem(idx, "photoUri",  result.assets[0].uri);
+                                        updateLineItem(idx, "photoUri", result.assets[0].uri);
                                     }
                                 }}
                                 className="mt-4 h-48 bg-gray-100 rounded-2xl overflow-hidden border border-dashed border-gray-400 flex items-center justify-center"

@@ -41,11 +41,18 @@ export default function Dashboard() {
 
     return (
         <View className="flex-1 bg-background">
-            <View className="absolute top-10 border h-[60px] w-full flex-row justify-between items-center px-6">
+            <View className="absolute top-14 border h-[60px] w-full flex-row justify-between items-center px-6">
                 <TouchableOpacity
-                    className="bg-secondary-foreground w-14 h-14 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
+                    className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
                     <Feather name="user" size={24} color="white"/>
                 </TouchableOpacity>
+
+                <View className="flex-row items-center gap-2">
+                    <TouchableOpacity
+                        className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
+                        <Feather name="more-horizontal" size={24} color="white"/>
+                    </TouchableOpacity>
+                </View>
 
                 {isIOS ? (
                     <BlurView
