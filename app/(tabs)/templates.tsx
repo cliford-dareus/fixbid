@@ -25,17 +25,17 @@ export default function TemplatesScreen() {
         return matchSearch && matchCat;
     });
 
-    const addToQuote = (template: any) => {
-        addLineItem({
-            description: template.name,
-            quantity: 1,
-            unitPrice: template.baseLaborPrice + template.materialCost,
-            isLabor: true,   // or false for pure material
-        });
-
-        Alert.alert('Added!', `"${template.name}" added to current quote`);
-        router.push('/(tabs)/quotes/new');   // Go directly to quote builder
-    };
+    // const addToQuote = (template: any) => {
+    //     addLineItem({
+    //         description: template.name,
+    //         quantity: 1,
+    //         unitPrice: template.baseLaborPrice + template.materialCost,
+    //         isLabor: true,   // or false for pure material
+    //     });
+    //
+    //     Alert.alert('Added!', `"${template.name}" added to current quote`);
+    //     router.push('/(tabs)/quotes/new');   // Go directly to quote builder
+    // };
 
     return (
         <View className="flex-1 bg-background">

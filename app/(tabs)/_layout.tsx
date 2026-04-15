@@ -23,18 +23,21 @@ function NativeTabLayout() {
                 <Icon sf={{default: "doc.text", selected: "doc.text.fill"}}/>
                 <Label>Templates</Label>
             </NativeTabs.Trigger>
-            <NativeTabs.Trigger name="clients">
-                <Icon sf={{default: "doc.text", selected: "doc.text.fill"}}/>
-                <Label>Clients</Label>
-            </NativeTabs.Trigger>
-            <NativeTabs.Trigger name="profile">
-                <Icon sf={{default: "person.2", selected: "person.2.fill"}}/>
-                <Label>Profile</Label>
-            </NativeTabs.Trigger>
+
+            {/*<NativeTabs.Trigger name="profile">*/}
+            {/*    <Icon sf={{default: "person.2", selected: "person.2.fill"}}/>*/}
+            {/*    <Label>Profile</Label>*/}
+            {/*</NativeTabs.Trigger>*/}
             {/*<NativeTabs.Trigger name="calculator">*/}
             {/*    <Icon sf={{default: "chart.bar", selected: "chart.bar.fill"}}/>*/}
             {/*    <Label>Margins</Label>*/}
             {/*</NativeTabs.Trigger>*/}
+            <NativeTabs.Trigger name="new"  options={{
+
+            }}>
+                <Icon sf={{default: "plus", selected: "plus.app.fill"}}/>
+                <Label>Search</Label>
+            </NativeTabs.Trigger>
         </NativeTabs>
     );
 }
@@ -56,7 +59,7 @@ function ClassicTabLayout() {
             screenOptions={{
                 tabBarActiveTintColor: '#3b82f6',
                 tabBarInactiveTintColor: '#6b7280',
-                headerShown: false,
+                headerShown: true,
                 tabBarStyle: {
                     position: "absolute",
                     backgroundColor: isIOS ? "transparent" : colors.background,
