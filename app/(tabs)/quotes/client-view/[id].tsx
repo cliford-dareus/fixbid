@@ -20,11 +20,6 @@ export default function ClientQuoteView() {
     const [quote, setQuote] = useState<any>(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        if (!id) return;
-        fetchPublicQuote();
-    }, [id]);
-
     const fetchPublicQuote = async () => {
         setLoading(true);
         try {
@@ -40,6 +35,11 @@ export default function ClientQuoteView() {
         }
     };
 
+    useEffect(() => {
+        if (!id) return;
+        fetchPublicQuote();
+    }, [id]);
+
     const handleApproveAndPay = async () => {
         if (!quote) return;
 
@@ -53,7 +53,7 @@ export default function ClientQuoteView() {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        Authorization: `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_KEY}`, // anon key is fine here
+                        Authorization: `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_KEY}`,
                     },
                     body: JSON.stringify({
                         quote_id: quote.id,

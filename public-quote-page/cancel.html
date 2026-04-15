@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Cancelled - FixBid</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center p-6">
+<div class="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden text-center">
+
+    <!-- Header -->
+    <div class="bg-orange-500 py-12">
+        <div class="w-20 h-20 bg-white rounded-full mx-auto flex items-center justify-center text-5xl shadow">
+            ⚠️
+        </div>
+    </div>
+
+    <div class="p-10">
+        <h1 class="text-3xl font-bold text-gray-800">Payment Cancelled</h1>
+
+        <p class="text-gray-600 mt-6 leading-relaxed">
+            No payment was processed.<br>
+            Your quote is still active and valid.
+        </p>
+
+        <div class="mt-10 space-y-4">
+            <button
+                    onclick="goBackToQuote()"
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-5 rounded-2xl transition-colors">
+                Return to Quote
+            </button>
+
+            <button
+                    onclick="window.close()"
+                    class="w-full border border-gray-300 text-gray-700 font-medium py-5 rounded-2xl hover:bg-gray-50 transition-colors">
+                Close Window
+            </button>
+        </div>
+
+        <p class="text-xs text-gray-500 mt-10">
+            Feel free to text Cliford if you have any questions
+        </p>
+    </div>
+</div>
+
+<script>
+    function goBackToQuote() {
+        // Go back to the original quote page (preserves the ?id= parameter)
+        const urlParams = new URLSearchParams(window.location.search);
+        const quoteId = urlParams.get('id');
+
+        if (quoteId) {
+            window.location.href = `https://your-vercel-app.vercel.app/?id=${quoteId}`;
+        } else {
+            window.history.back();
+        }
+    }
+</script>
+</body>
+</html>

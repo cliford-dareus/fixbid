@@ -143,55 +143,55 @@ export default function QuoteDetail() {
         if (!quote) return;
 
         const htmlContent = `
-          <html>
-            <head>
-              <style>
-                body { font-family: Arial, sans-serif; padding: 40px; }
-                h1 { color: #1e40af; text-align: center; }
-                table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-                th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-                th { background-color: #f1f5f9; }
-                .photo { max-width: 300px; border-radius: 8px; margin: 10px 0; }
-                .total { font-size: 26px; font-weight: bold; color: #15803d; text-align: right; }
-              </style>
-            </head>
-            <body>
-                 <div class="header">
-                    <h1>FixBid Handyman Quote</h1>
-                    ${profile ? `
-                      <p><strong>${profile.business_name || profile.full_name}</strong></p>
-                      <p>${profile.phone} • ${profile.address || 'South Florida'}</p>
-                    ` : ''}
-                    <p>Date: ${new Date().toLocaleDateString()}</p>
-                  </div>
+              <html>
+                <head>
+                  <style>
+                    body { font-family: Arial, sans-serif; padding: 40px; }
+                    h1 { color: #1e40af; text-align: center; }
+                    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                    th { background-color: #f1f5f9; }
+                    .photo { max-width: 300px; border-radius: 8px; margin: 10px 0; }
+                    .total { font-size: 26px; font-weight: bold; color: #15803d; text-align: right; }
+                  </style>
+                </head>
+                <body>
+                     <div class="header">
+                        <h1>FixBid Handyman Quote</h1>
+                        ${profile ? `
+                          <p><strong>${profile.business_name || profile.full_name}</strong></p>
+                          <p>${profile.phone} • ${profile.address || 'South Florida'}</p>
+                        ` : ''}
+                        <p>Date: ${new Date().toLocaleDateString()}</p>
+                      </div>
+                      
+                  <h2>Client: ${quote.client_name}</h2>
+                  ${quote.client_phone ? `<p>Phone: ${quote.client_phone}</p>` : ''}
                   
-              <h2>Client: ${quote.client_name}</h2>
-              ${quote.client_phone ? `<p>Phone: ${quote.client_phone}</p>` : ''}
-              
-              <table>
-                <thead>
-                  <tr><th>Description</th><th>Qty</th><th>Price</th><th>Total</th></tr>
-                </thead>
-                <tbody>
-                  ${quote.line_items.map(item => `
-                    <tr>
-                      <td>${item.description}</td>
-                      <td>${item.quantity}</td>
-                      <td>$${item.unit_price}</td>
-                      <td>$${(item.quantity * item.unit_price).toFixed(2)}</td>
-                    </tr>
-                    ${item.photo_url ? `
-                      <tr><td colspan="4"><img src="${item.photo_url}" class="photo" /></td></tr>
-                    ` : ''}
-                  `).join('')}
-                </tbody>
-              </table>
-              
-              <div class="total">Total: $${quote.total_amount}</div>
-              ${quote.notes ? `<p><strong>Notes:</strong><br>${quote.notes}</p>` : ''}
-            </body>
-          </html>
-    `;
+                  <table>
+                    <thead>
+                      <tr><th>Description</th><th>Qty</th><th>Price</th><th>Total</th></tr>
+                    </thead>
+                    <tbody>
+                      ${quote.line_items.map(item => `
+                        <tr>
+                          <td>${item.description}</td>
+                          <td>${item.quantity}</td>
+                          <td>$${item.unit_price}</td>
+                          <td>$${(item.quantity * item.unit_price).toFixed(2)}</td>
+                        </tr>
+                        ${item.photo_url ? `
+                          <tr><td colspan="4"><img src="${item.photo_url}" class="photo" /></td></tr>
+                        ` : ''}
+                      `).join('')}
+                    </tbody>
+                  </table>
+                  
+                  <div class="total">Total: $${quote.total_amount}</div>
+                  ${quote.notes ? `<p><strong>Notes:</strong><br>${quote.notes}</p>` : ''}
+                </body>
+              </html>
+        `;
 
         try {
             const {uri} = await Print.printToFileAsync({html: htmlContent});

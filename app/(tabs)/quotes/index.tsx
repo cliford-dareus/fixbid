@@ -1,5 +1,15 @@
-import React, {useEffect, useState} from 'react';
-import {View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, Alert, Platform} from 'react-native';
+import React, {useCallback, useEffect, useState} from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    TouchableOpacity,
+    Image,
+    ActivityIndicator,
+    Alert,
+    Platform,
+    RefreshControl
+} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Plus, Eye} from 'lucide-react-native';
 import {supabase} from "@/lib/supabase";
@@ -27,6 +37,7 @@ export default function QuotesList() {
     const {user} = useAuth();
     const [quotes, setQuotes] = useState<Quote[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     const isIOS = Platform.OS === "ios";
     const isWeb = Platform.OS === "web";
@@ -67,6 +78,12 @@ export default function QuotesList() {
         fetchQuotes();
     }, [user]);
 
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await fetchQuotes();
+        setRefreshing(false);
+    }, []);
+
     const formatDate = (dateString: string) => {
         return new Date(dateString).toLocaleDateString('en-US', {
             month: 'short',
@@ -75,7 +92,7 @@ export default function QuotesList() {
         });
     };
 
-    if (loading) {
+    if (loading && quotes.length == 0) {
         return (
             <View className="flex-1 justify-center items-center bg-gray-50">
                 <ActivityIndicator size="large" color="#3b82f6"/>
@@ -117,53 +134,59 @@ export default function QuotesList() {
                 data={quotes}
                 keyExtractor={(item) => item.id}
                 className="px-6 pt-4"
-                // refreshControl={/* You can add Pull-to-Refresh later */}
-                renderItem={({item}) => (
-                    <TouchableOpacity
-                        onPress={() => router.push(`/quotes/${item.id}`)} // We'll create detail view later
-                        className="bg-white rounded-3xl p-5 mb-4 shadow-sm"
-                    >
-                        <View className="flex-row justify-between">
-                            <View className="flex-1">
-                                <Text className="text-xl font-semibold">{item.client_name}</Text>
-                                <Text className="text-gray-500 text-sm mt-1">
-                                    {formatDate(item.created_at)}
-                                </Text>
-                            </View>
-                            <View className="items-end">
-                                <Text className="text-3xl font-bold text-green-600">
-                                    ${item.total_amount}
-                                </Text>
-                                <View className={`mt-2 px-4 py-1 rounded-full self-end ${
-                                    item.status === 'approved' ? 'bg-green-100' : 'bg-amber-100'
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        colors={['#3b82f6']}
+                        tintColor="#3b82f6"
+                    />
+                } renderItem={({item}) => (
+                <TouchableOpacity
+                    onPress={() => router.push(`/quotes/${item.id}`)} // We'll create detail view later
+                    className="bg-white rounded-3xl p-5 mb-4 shadow-sm"
+                >
+                    <View className="flex-row justify-between">
+                        <View className="flex-1">
+                            <Text className="text-xl font-semibold">{item.client_name}</Text>
+                            <Text className="text-gray-500 text-sm mt-1">
+                                {formatDate(item.created_at)}
+                            </Text>
+                        </View>
+                        <View className="items-end">
+                            <Text className="text-3xl font-bold text-green-600">
+                                ${item.total_amount}
+                            </Text>
+                            <View className={`mt-2 px-4 py-1 rounded-full self-end ${
+                                item.status === 'approved' ? 'bg-green-100' : 'bg-amber-100'
+                            }`}>
+                                <Text className={`text-xs font-medium capitalize ${
+                                    item.status === 'approved' ? 'text-green-700' : 'text-amber-700'
                                 }`}>
-                                    <Text className={`text-xs font-medium capitalize ${
-                                        item.status === 'approved' ? 'text-green-700' : 'text-amber-700'
-                                    }`}>
-                                        {item.status}
-                                    </Text>
-                                </View>
+                                    {item.status}
+                                </Text>
                             </View>
                         </View>
+                    </View>
 
-                        {/* Show first photo thumbnail if available */}
-                        {item.line_items && item.line_items.length > 0 && item.line_items[0].photo_url && (
-                            <Image
-                                source={{uri: item.line_items[0].photo_url}}
-                                className="w-full h-40 rounded-2xl mt-4 object-cover"
-                            />
-                        )}
+                    {/* Show first photo thumbnail if available */}
+                    {item.line_items && item.line_items.length > 0 && item.line_items[0].photo_url && (
+                        <Image
+                            source={{uri: item.line_items[0].photo_url}}
+                            className="w-full h-40 rounded-2xl mt-4 object-cover"
+                        />
+                    )}
 
-                        <TouchableOpacity
-                            className="mt-4 bg-gray-100 py-3 rounded-2xl flex-row justify-center items-center gap-2"
-                            onPress={() => {/* Later: regenerate PDF from this quote */
-                            }}
-                        >
-                            <Eye size={18} color="#374151"/>
-                            <Text className="text-gray-700 font-medium">View / Regenerate PDF</Text>
-                        </TouchableOpacity>
+                    <TouchableOpacity
+                        className="mt-4 bg-gray-100 py-3 rounded-2xl flex-row justify-center items-center gap-2"
+                        onPress={() => {/* Later: regenerate PDF from this quote */
+                        }}
+                    >
+                        <Eye size={18} color="#374151"/>
+                        <Text className="text-gray-700 font-medium">View / Regenerate PDF</Text>
                     </TouchableOpacity>
-                )}
+                </TouchableOpacity>
+            )}
                 ListEmptyComponent={
                     <View className="items-center justify-center py-20">
                         <Text className="text-gray-400 text-lg">No quotes yet</Text>

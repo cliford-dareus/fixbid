@@ -11,14 +11,14 @@ import {
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-// import { useApp } from "@/context/AppContext";
 import {calculateJobCost, getTemplateById} from "@/data/templates";
+import {useQuote} from "@/context/quote-context";
 
 export default function TemplateDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const template = getTemplateById(id ?? "");
     const insets = useSafeAreaInsets();
-    // const { clients, addQuote } = useApp();
+    const {addQuote } = useQuote();
     const [qty, setQty] = useState("1");
     const [markup, setMarkup] = useState("20");
     const [selectedClientId, setSelectedClientId] = useState<string>("");
@@ -35,39 +35,43 @@ export default function TemplateDetailScreen() {
     const cost = calculateJobCost(template, 1 + parseFloat(markup || "20") / 100);
     const total = cost.suggested * qtyNum;
 
-    // const handleCreateQuote = () => {
-    //     if (!selectedClientId) {
-    //         Alert.alert("Select a client", "Choose a client to create the quote for.");
-    //         return;
-    //     }
-    //     const client = clients.find((c) => c.id === selectedClientId);
-    //     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    //     const quote = addQuote({
-    //         clientId: selectedClientId,
-    //         clientName: client?.name ?? "",
-    //         templateId: template.id,
-    //         jobName: template.name,
-    //         lineItems: [
-    //             {
-    //                 description: `Labor - ${template.name} (${template.timeEstimateHours * qtyNum}h @ $${template.laborRate}/hr)`,
-    //                 qty: 1,
-    //                 unitPrice: template.timeEstimateHours * template.laborRate * qtyNum,
-    //             },
-    //             ...template.materials
-    //                 .filter((m) => m.qty > 0)
-    //                 .map((m) => ({
-    //                     description: m.name,
-    //                     qty: m.qty * qtyNum,
-    //                     unitPrice: m.avgCost * (1 + parseFloat(markup || "20") / 100),
-    //                 })),
-    //         ],
-    //         notes: `Generated from template: ${template.name}\nCommon upsells: ${template.commonUpsells.join(", ")}`,
-    //         total,
-    //         status: "draft" as const,
-    //         photos: [],
-    //     });
-    //     router.push(`/quote/${quote.id}`);
-    // };
+    const handleCreateQuote = () => {
+        if (!selectedClientId) {
+            Alert.alert("Select a client", "Choose a client to create the quote for.");
+            return;
+        }
+        // const client = clients.find((c) => c.id === selectedClientId);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const quote = addQuote({
+            clientId: selectedClientId,
+            clientName: "",
+            templateId: template.id,
+            jobName: template.name,
+            lineItems: [
+                {
+                    id: "",
+                    description: `Labor - ${template.name} (${template.timeEstimateHours * qtyNum}h @ $${template.laborRate}/hr)`,
+                    quantity: 1,
+                    unitPrice: template.timeEstimateHours * template.laborRate * qtyNum,
+                    isLabor: true
+                },
+                ...template.materials
+                    .filter((m) => m.qty > 0)
+                    .map((m) => ({
+                        id: "",
+                        description: m.name,
+                        quantity: m.qty * qtyNum,
+                        unitPrice: m.avgCost * (1 + parseFloat(markup || "20") / 100),
+                        isLabor: true
+                    })),
+            ],
+            notes: `Generated from template: ${template.name}\nCommon upsells: ${template.commonUpsells.join(", ")}`,
+            total,
+            status: "draft" as const,
+            photos: [],
+        });
+        router.push(`/quotes/${quote.id}`);
+    };
 
     return (
         <View className="flex-1 bg-background">
