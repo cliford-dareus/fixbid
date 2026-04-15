@@ -50,7 +50,7 @@
 
             renderQuote(result.quote);
         } catch (err) {
-            showError("Could not load quote. Please ask Cliford to resend the link.");
+            showError("Could not load quote. Please ask Cliford to resend the link.", err.message || err.toString());
         }
     }
 
