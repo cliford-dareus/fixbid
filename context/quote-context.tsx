@@ -74,23 +74,30 @@ interface Job {
 type QuoteContextType = {
     // QUOTE
     quotes: Quote[];
+    newQuote: Quote | null;
+    addNewQuote: (q: Omit<Quote, "id" | "createdAt">) => Quote;
+    updateNewQuote: (field: string, value: string | number) => void;
     addQuote: (q: Omit<Quote, "id" | "createdAt">) => Quote;
     updateQuote: (id: string | undefined, updates: Partial<Quote>) => void;
     deleteQuote: (id: string) => void;
-    clearQuotes: () => void;
+    clearNewQuote: () => void;
+
     // LINE ITEMS
     lineItems: Line[];
     updateLineItem: (idx: number, field: keyof LineItem, value: string | number) => void;
     removeLineItem: (idx: number) => void;
     addLineItem: () => void;
     setLineItems: React.Dispatch<React.SetStateAction<Line[]>>;
+
     // CLIENTS
     clients: any[];
     updateClient: (id: string | undefined, updates: Partial<Client>) => void;
     deleteClient: (id: string) => void;
+
     // JOBS
     jobs: Job[];
     updateJob: (id: string | undefined, updates: Partial<Job>) => void;
+    getTodayJobs: () => Job[];
 };
 
 const QuoteContext = createContext<QuoteContextType | undefined>(undefined);
@@ -98,6 +105,7 @@ const QuoteContext = createContext<QuoteContextType | undefined>(undefined);
 export function QuoteProvider({children}: { children: ReactNode }) {
     const {user} = useAuth();
     const [clients, setClients] = useState<Client[]>([]);
+    const [newQuote, setNewQuote] = useState<Quote | null>(null)
     const [quotes, setQuotes] = useState<Quote[]>([]);
     const [jobs, setJobs] = useState<any[]>([]);
     const [lineItems, setLineItems] = useState<Line[]>([{
@@ -137,9 +145,25 @@ export function QuoteProvider({children}: { children: ReactNode }) {
             }
         }
 
+        const fetchQuotes = async () => {
+            try {
+                const {data, error} = await supabase
+                    .from('quotes')
+                    .select()
+                    .eq("handyman_id", user?.id)
+
+                if (error) throw error;
+                setQuotes(data || [])
+            } catch (error) {
+                console.error(error);
+                Alert.alert('Error', 'Failed to load quotes. Please try again later.');
+            }
+        }
+
         if (!user?.id) return;
         fetchClients();
         fetchJobs();
+        fetchQuotes();
     }, [user?.id]);
 
     // QUOTES
@@ -187,9 +211,29 @@ export function QuoteProvider({children}: { children: ReactNode }) {
         []
     );
 
-    const clearQuotes = () => {
+    const addNewQuote = useCallback(
+        (q: Omit<Quote, "id" | "createdAt">) => {
+            const newQuote: Quote = {...q, id: "", createdAt: new Date().toISOString()};
+            setNewQuote(newQuote);
+            setLineItems(q.lineItems)
+            return newQuote;
+        },
+        []
+    );
+
+    const updateNewQuote = useCallback(
+        (field: string, value: string | number) => {
+            setNewQuote((prev) => {
+                if (!prev) return prev;
+                return {...prev, [field]: value};
+            });
+        },
+        []
+    );
+
+    const clearNewQuote = () => {
         setLineItems([])
-        setQuotes([])
+        setNewQuote(null)
     };
 
     //  LINE ITEMS
@@ -214,6 +258,17 @@ export function QuoteProvider({children}: { children: ReactNode }) {
         )
     };
 
+    const getTodayJobs = () => {
+        const today = new Date();
+        const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
+
+        return jobs.filter(job => {
+            const jobDate = new Date(job.scheduleDate);
+            return jobDate >= startOfDay && jobDate <= endOfDay;
+        });
+    }
+
     // CLIENTS
     const updateClient = (id: string | undefined, updates: Partial<Client>) => {
         setClients((prev) =>
@@ -227,11 +282,14 @@ export function QuoteProvider({children}: { children: ReactNode }) {
 
     return (
         <QuoteContext.Provider value={{
+            newQuote,
+            addNewQuote,
+            updateNewQuote,
             quotes,
             addQuote,
             updateQuote,
             deleteQuote,
-            clearQuotes,
+            clearNewQuote,
 
             lineItems,
             updateLineItem,
@@ -245,6 +303,7 @@ export function QuoteProvider({children}: { children: ReactNode }) {
 
             jobs,
             updateJob,
+            getTodayJobs,
         }}>
             {children}
         </QuoteContext.Provider>

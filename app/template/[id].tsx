@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import {router, useLocalSearchParams} from "expo-router";
 import React, {useState} from "react";
 import {
+    Alert,
     ScrollView,
     Text,
     TextInput,
@@ -12,12 +13,13 @@ import {
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {calculateJobCost, getTemplateById} from "@/data/templates";
 import {useQuote} from "@/context/quote-context";
+import {cn} from "@/lib/utils";
 
 export default function TemplateDetailScreen() {
     const {id} = useLocalSearchParams<{ id: string }>();
     const template = getTemplateById(id ?? "");
     const insets = useSafeAreaInsets();
-    const {addQuote} = useQuote();
+    const {clients, addNewQuote} = useQuote();
     const [qty, setQty] = useState("1");
     const [markup, setMarkup] = useState("20");
     const [selectedClientId, setSelectedClientId] = useState<string>("");
@@ -35,15 +37,16 @@ export default function TemplateDetailScreen() {
     const total = cost.suggested * qtyNum;
 
     const handleCreateQuote = () => {
-        // if (!selectedClientId) {
-        //     Alert.alert("Select a client", "Choose a client to create the quote for.");
-        //     return;
-        // }
-        // const client = clients.find((c) => c.id === selectedClientId);
+        if (!selectedClientId) {
+            Alert.alert("Select a client", "Choose a client to create the quote for.");
+            return;
+        }
+
+        const client = clients.find((c) => c.id === selectedClientId);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        const quote = addQuote({
+        addNewQuote({
             clientId: selectedClientId,
-            clientName: "",
+            clientName: client?.name || "Unknown Client",
             templateId: template.id,
             jobName: template.name,
             lineItems: [
@@ -69,7 +72,7 @@ export default function TemplateDetailScreen() {
             status: "draft" as const,
             photos: [],
         });
-        router.push(`/quotes/new`);
+        router.push(`/quote/new`);
     };
 
     return (
@@ -179,55 +182,50 @@ export default function TemplateDetailScreen() {
                     </View>
                 )}
 
-                {/* Client Select */}
-                {/*<View className="px-4 mb-5">*/}
-                {/*    <Text className="text-foreground font-bold text-base mb-3">Create Quote For</Text>*/}
-                {/*    {clients.length === 0 ? (*/}
-                {/*        <TouchableOpacity*/}
-                {/*            className="bg-primary flex-row items-center justify-center gap-2 rounded-lg border border-border p-4"*/}
-                {/*            onPress={() => router.push("/(tabs)/clients")}*/}
-                {/*        >*/}
-                {/*            <Feather name="plus" size={16} color="primary" />*/}
-                {/*            <Text className="font-semibold text-base text-primary">*/}
-                {/*                Add a client first*/}
-                {/*            </Text>*/}
-                {/*        </TouchableOpacity>*/}
-                {/*    ) : (*/}
-                {/*        clients.map((c) => (*/}
-                {/*            <TouchableOpacity*/}
-                {/*                key={c.id}*/}
-                {/*                className="flex-row items-center justify-between gap-2 rounded-lg border border-border p-4 mb-2"*/}
-                {/*                style={[*/}
-                {/*                    {*/}
-                {/*                        backgroundColor:*/}
-                {/*                            selectedClientId === c.id ? colors.secondary : colors.card,*/}
-                {/*                        borderColor:*/}
-                {/*                            selectedClientId === c.id ? colors.primary : colors.border,*/}
-                {/*                    },*/}
-                {/*                ]}*/}
-                {/*                onPress={() => setSelectedClientId(c.id)}*/}
-                {/*                activeOpacity={0.8}*/}
-                {/*            >*/}
-                {/*                <View className="w-11 h-11 rounded-full items-center justify-center">*/}
-                {/*                    <Text className="font-bold text-base text-primary">*/}
-                {/*                        {c.name.charAt(0)}*/}
-                {/*                    </Text>*/}
-                {/*                </View>*/}
-                {/*                <View style={{ flex: 1 }}>*/}
-                {/*                    <Text className="font-semibold">{c.name}</Text>*/}
-                {/*                    {c.phone ? (*/}
-                {/*                        <Text className="text-xs text-muted-foreground">*/}
-                {/*                            {c.phone}*/}
-                {/*                        </Text>*/}
-                {/*                    ) : null}*/}
-                {/*                </View>*/}
-                {/*                {selectedClientId === c.id && (*/}
-                {/*                    <Feather name="check-circle" size={20} color="primary" />*/}
-                {/*                )}*/}
-                {/*            </TouchableOpacity>*/}
-                {/*        ))*/}
-                {/*    )}*/}
-                {/*</View>*/}
+                {/*Client Select*/}
+                <View className="px-4 mb-5">
+                    <Text className="text-foreground font-bold text-base mb-3">Create Quote For</Text>
+                    {clients.length === 0 ? (
+                        <TouchableOpacity
+                            className="bg-primary flex-row items-center justify-center gap-2 rounded-lg border border-border p-4"
+                            onPress={() => router.push("/(tabs)/clients")}
+                        >
+                            <Feather name="plus" size={16} color="primary"/>
+                            <Text className="font-semibold text-base text-primary">
+                                Add a client first
+                            </Text>
+                        </TouchableOpacity>
+                    ) : (
+                        clients.map((c) => (
+                            <TouchableOpacity
+                                key={c.id}
+                                className={cn("flex-row items-center justify-between gap-2 rounded-lg border border-zinc-200 p-4 mb-2",
+                                    selectedClientId === c.id ? "bg-secondary" : "bg-card",
+                                    selectedClientId === c.id ? "border-primary" : "border-zinc-200",
+                                )}
+                                onPress={() => setSelectedClientId(c.id)}
+                                activeOpacity={0.8}
+                            >
+                                <View className="w-11 h-11 rounded-full items-center justify-center">
+                                    <Text className="font-bold text-base text-primary">
+                                        {c.name.charAt(0)}
+                                    </Text>
+                                </View>
+                                <View style={{flex: 1}}>
+                                    <Text className="font-semibold">{c.name}</Text>
+                                    {c.phone ? (
+                                        <Text className="text-xs text-muted-foreground">
+                                            {c.phone}
+                                        </Text>
+                                    ) : null}
+                                </View>
+                                {selectedClientId === c.id && (
+                                    <Feather name="check-circle" size={20} color="primary"/>
+                                )}
+                            </TouchableOpacity>
+                        ))
+                    )}
+                </View>
             </ScrollView>
 
             {/* CTA */}

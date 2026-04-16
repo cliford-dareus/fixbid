@@ -14,6 +14,7 @@ import {
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {Client, useQuote} from "@/context/quote-context";
 import {supabase} from "@/lib/supabase";
+import {cn} from "@/lib/utils";
 // import { StatusBadge } from "@/components/StatusBadge";
 
 export default function ClientDetailScreen() {
@@ -133,13 +134,10 @@ export default function ClientDetailScreen() {
                 </Text>
 
                 <TouchableOpacity
-                    className="rounded-[10px] px-3.5 py-2"
-                    // style={{ backgroundColor: editing ? colors.primary : colors.secondary }}
+                    className={cn("rounded-[10px] px-3.5 py-2", editing ? " bg-primary/10 text-primary" : "text-secondary")}
                     onPress={() => (editing ? handleSave() : setEditing(true))}
                 >
-                    <Text className="text-sm font-bold"
-                        // style={{ color: editing ? "#fff" : colors.primary }}
-                    >
+                    <Text className={cn("text-sm font-bold", editing ? "text-[#fff]" : "text-primary")}>
                         {editing ? "Save" : "Edit"}
                     </Text>
                 </TouchableOpacity>
@@ -245,7 +243,6 @@ export default function ClientDetailScreen() {
                                 </Text>
                                 <TextInput
                                     className="text-foreground rounded-[10px] border px-3 py-2.5 text-[15px]"
-                                    // style={{ color: colors.foreground, borderColor: colors.border }}
                                     value={f.value}
                                     onChangeText={f.onChange}
                                     placeholder={f.placeholder}

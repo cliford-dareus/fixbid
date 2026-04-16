@@ -17,11 +17,12 @@ export default function NewQuote() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const {
-        quotes,
+        newQuote,
+        updateNewQuote,
         clients,
         lineItems,
         updateQuote,
-        clearQuotes,
+        clearNewQuote,
         removeLineItem,
         updateLineItem,
         addLineItem,
@@ -29,7 +30,7 @@ export default function NewQuote() {
     } = useQuote();
     const [step, setStep] = useState<"photo" | "details">("photo");
     const [photos, setPhotos] = useState<string[]>([]);
-    const [jobName, setJobName] = useState("");
+    const [jobName, setJobName] = useState(newQuote?.jobName || "");
     const [notes, setNotes] = useState("");
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
@@ -85,10 +86,10 @@ export default function NewQuote() {
     };
 
     const handleSave = async () => {
-        // if (!clientName.trim() || lineItems.length === 0) {
-        //     Alert.alert('Error', 'Client name and at least one item required');
-        //     return;
-        // }
+        if (!clientName.trim() || lineItems.length === 0) {
+            Alert.alert('Error', 'Client name and at least one item required');
+            return;
+        }
 
         try {
             const {data: {user}} = await supabase.auth.getUser();
@@ -261,7 +262,6 @@ export default function NewQuote() {
                         text: "Use template",
                         onPress: () => {
                             setJobName(match.name);
-                            updateQuote(undefined, {jobName: match.name});
                             setLineItems([
                                 {
                                     description: `Labor (${match.timeEstimateHours}h @ $${match.laborRate}/hr)`,
@@ -289,7 +289,7 @@ export default function NewQuote() {
         }
     };
 
-    if (step === "photo" && quotes.length === 0) {
+    if (step === "photo" && !newQuote) {
         return (
             <View className="flex-1 bg-background">
                 <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: insets.top + 16}}>
@@ -389,7 +389,7 @@ export default function NewQuote() {
         >
             <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: insets.top + 16}}>
                 <TouchableOpacity onPress={() => {
-                    clearQuotes()
+                    clearNewQuote()
                     setStep("photo")
                 }}>
                     <Feather name="arrow-left" size={24} color=""/>
@@ -423,7 +423,7 @@ export default function NewQuote() {
                     </Text>
                     <TextInput
                         className="text-foreground bg-card border border-zinc-300 rounded-[12px] px-4 py-3 text-[15px]"
-                        value={quotes[0].jobName}
+                        value={newQuote?.jobName}
                         onChangeText={(value) => updateQuote(undefined, {jobName: value})}
                         placeholder="e.g. Faucet Replacement"
                         // placeholderTextColor={colors.mutedForeground

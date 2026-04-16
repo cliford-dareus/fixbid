@@ -1,10 +1,11 @@
 import React from 'react';
-import {View, Text, TouchableOpacity, ScrollView} from 'react-native';
+import {View, Text, TouchableOpacity, ScrollView, Platform} from 'react-native';
 import {useRouter} from 'expo-router';
 import {useAuth} from "@/context/auth-context";
 import {Feather} from "@expo/vector-icons";
 import {BlurView} from "expo-blur";
 import useThemedNavigation from "@/hooks/use-navigation-theme";
+import {useQuote} from "@/context/quote-context";
 
 function MetricCard({
                         label,
@@ -32,8 +33,12 @@ export default function Dashboard() {
     const router = useRouter();
     const {user} = useAuth();
     const {isDark, isIOS, isWeb} = useThemedNavigation();
+    const {quotes, jobs, getTodayJobs} =useQuote();
 
-    const todaysJobs = []
+    const todaysJobs = getTodayJobs();
+    // const monthRevenue =
+    const openJobs = jobs.filter(job => job.status !== "paid" && job.status !== "completed");
+    const pendingQuotes = quotes.filter(quote => quote.status === "sent");
 
     return (
         <View className="flex-1 bg-background">
@@ -94,13 +99,13 @@ export default function Dashboard() {
                     />
                     <MetricCard
                         label="Open Jobs"
-                        value={String(1)}
+                        value={String(openJobs.length)}
                         icon="briefcase"
                         accent="blue"
                     />
                     <MetricCard
                         label="Pending Quotes"
-                        value={String(3)}
+                        value={String(pendingQuotes.length)}
                         icon="file-text"
                         accent="red"
                     />
