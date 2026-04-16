@@ -1,7 +1,6 @@
-import { Feather } from "@expo/vector-icons";
+import {Feather} from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
-import React, { useState } from "react";
+import React, {useState} from "react";
 import {
     Alert,
     FlatList,
@@ -11,29 +10,32 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-// import { EmptyState } from "@/components/EmptyState";
-
+import {useSafeAreaInsets} from "react-native-safe-area-context";
+import {BlurView} from "expo-blur";
 import {Client, useQuote} from "@/context/quote-context";
+import useThemedNavigation from "@/hooks/use-navigation-theme";
+import {router} from "expo-router";
+// import { EmptyState } from "@/components/EmptyState";
 
 export default function ClientsScreen() {
     const insets = useSafeAreaInsets();
-    const { clients } = useQuote();
+    const {clients, } = useQuote();
     const [search, setSearch] = useState("");
     const [showAdd, setShowAdd] = useState(false);
     const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
+    const {isDark, isWeb, isIOS} = useThemedNavigation()
 
     const filtered = clients.filter(
         (c) =>
             !search ||
-            c.name.toLowerCase().includes(search.toLowerCase()) ||
-            c.phone.includes(search) ||
-            c.email.toLowerCase().includes(search.toLowerCase())
+            c.name?.toLowerCase()?.includes(search?.toLowerCase()) ||
+            c.phone?.includes(search) |
+            c.email?.toLowerCase()?.includes(search?.toLowerCase())
     );
 
-    const handleDelete = (c: Client) => {
+    const handleDelete = async (c: Client) => {
         Alert.alert("Delete Client", `Remove ${c.name}?`, [
-            { text: "Cancel", style: "cancel" },
+            {text: "Cancel", style: "cancel"},
             {
                 text: "Delete",
                 style: "destructive",
@@ -46,25 +48,59 @@ export default function ClientsScreen() {
     };
 
     return (
-        <View className="flex-1 bg-background">
-            <View className="flex-row items-center justify-between px-5 pb-3" style={{ paddingTop: topPad + 16 }}>
+        <View className="flex-1 bg-background pt-[40px]">
+            <View className="absolute top-14 h-[60px] w-full flex-row justify-between items-center px-6">
+                <TouchableOpacity
+                    className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
+                    <Feather name="user" size={24} color="white"/>
+                </TouchableOpacity>
+
+                <View className="flex-row gap-2 bg-secondary-foreground rounded-full px-2 py-[3px] z-50">
+                    {/*<TouchableOpacity*/}
+                    {/*    className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">*/}
+                    {/*    <Feather name="bell" size={24} color="white"/>*/}
+                    {/*    <View className="absolute top-0 right-0 bg-red-500 w-3 h-3 rounded-full"/>*/}
+                    {/*</TouchableOpacity>*/}
+                    <TouchableOpacity
+                        className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center"
+                        onPress={() => setShowAdd(true)}
+                        activeOpacity={0.85}
+                    >
+                        <Feather name="message-circle" size={18} color="#fff"/>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center"
+                        onPress={() => setShowAdd(true)}
+                        activeOpacity={0.85}
+                    >
+                        <Feather name="plus" size={18} color="#fff"/>
+                    </TouchableOpacity>
+                </View>
+
+
+                {isIOS ? (
+                    <BlurView
+                        intensity={100}
+                        tint={isDark ? "dark" : "light"}
+                        className="absolute inset-0"
+                    />
+                ) : isWeb ? (
+                    <View className="absolute inset-0 bg-background"/>
+                ) : null}
+            </View>
+
+            <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: topPad + 16}}>
                 <Text className="text-foreground text-[26px] font-extrabold tracking-[-0.5px]">
                     Clients
                 </Text>
-                <TouchableOpacity
-                    className="bg-primary h-[38px] w-[38px] items-center justify-center rounded-[12px]"
-                    onPress={() => setShowAdd(true)}
-                    activeOpacity={0.85}
-                >
-                    <Feather name="plus" size={18} color="#fff" />
-                </TouchableOpacity>
             </View>
 
             <View className="mb-2 px-5">
                 <View
-                    className="bg-card flex-row items-center gap-2.5 rounded-[12px] border px-3.5 py-2.5"
+                    className="bg-card flex-row items-center gap-2.5 rounded-[12px] border border-zinc-300 px-3.5 py-2.5"
                 >
-                    <Feather name="search" size={16} color="muted.foreground" />
+                    <Feather name="search" size={16} color="muted.foreground"/>
                     <TextInput
                         className="text-foreground flex-1 text-[15px]"
                         placeholder="Search clients..."
@@ -79,7 +115,7 @@ export default function ClientsScreen() {
                 // <EmptyState
                 //     icon="users"
                 //     title="No clients yet"
-                //     subtitle="Add your first client to start tracking jobs and quotes."
+                //     subtitle="Add your first client to start tracking jobs and quote."
                 //     actionLabel="Add Client"
                 //     onAction={() => setShowAdd(true)}
                 // />
@@ -90,12 +126,12 @@ export default function ClientsScreen() {
                     data={filtered}
                     keyExtractor={(c) => c.id}
                     contentContainerClassName="px-4 pt-3 pb-24"
-                    renderItem={({ item }) => {
+                    renderItem={({item}) => {
                         // const jobCount = getClientJobs(item.id).length;
                         return (
                             <TouchableOpacity
                                 className="bg-card mb-2 flex-row items-center gap-3 rounded-[14px] p-3.5"
-                                // onPress={() => router.push(`/client/${item.id}`)}
+                                onPress={() => router.push(`/client/${item.id}`)}
                                 onLongPress={() => handleDelete(item)}
                                 activeOpacity={0.8}
                             >
@@ -139,7 +175,7 @@ export default function ClientsScreen() {
                 />
             )}
 
-            {showAdd && <AddClientModal onClose={() => setShowAdd(false)} colors="" />}
+            {showAdd && <AddClientModal onClose={() => setShowAdd(false)} colors=""/>}
         </View>
     );
 }
@@ -171,30 +207,32 @@ function AddClientModal({
     };
 
     return (
-        <View className="bg-white absolute inset-0 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.4)", zIndex: 999 }}>
-            <TouchableOpacity className="flex-1" onPress={onClose} activeOpacity={1} />
+        <View
+            className="bg-background absolute inset-0 justify-end"
+            style={{backgroundColor: "rgba(0,0,0,0.4)", zIndex: 999}}>
+            <TouchableOpacity className="flex-1" onPress={onClose} activeOpacity={1}/>
             <View
                 className="gap-3.5 rounded-t-[24px] p-6 bg-card"
                 style={{
-                    paddingBottom: Math.max(insets.bottom, 24),
+                    paddingBottom: Math.max(insets.bottom, 100),
                 }}
             >
-                <View className="mb-1 h-1 w-9 self-center rounded-full" style={{ backgroundColor: "#D1D5DB" }} />
+                <View className="mb-1 h-1 w-9 self-center rounded-full" style={{backgroundColor: "#D1D5DB"}}/>
                 <Text className="text-foreground text-[20px] font-bold">
                     New Client
                 </Text>
 
                 {[
-                    { label: "Name *", value: name, onChange: setName, placeholder: "John Smith" },
-                    { label: "Phone", value: phone, onChange: setPhone, placeholder: "(555) 555-5555" },
-                    { label: "Email", value: email, onChange: setEmail, placeholder: "john@email.com" },
-                    { label: "Address", value: address, onChange: setAddress, placeholder: "123 Main St..." },
-                    { label: "Notes", value: notes, onChange: setNotes, placeholder: "Optional notes..." },
+                    {label: "Name *", value: name, onChange: setName, placeholder: "John Smith"},
+                    {label: "Phone", value: phone, onChange: setPhone, placeholder: "(555) 555-5555"},
+                    {label: "Email", value: email, onChange: setEmail, placeholder: "john@email.com"},
+                    {label: "Address", value: address, onChange: setAddress, placeholder: "123 Main St..."},
+                    {label: "Notes", value: notes, onChange: setNotes, placeholder: "Optional notes..."},
                 ].map((field) => (
                     <View key={field.label} className="gap-1">
                         <Text
                             className="text-[12px] font-semibold uppercase tracking-[0.5px]"
-                            style={{ color: colors.mutedForeground }}
+                            style={{color: colors.mutedForeground}}
                         >
                             {field.label}
                         </Text>
@@ -216,17 +254,17 @@ function AddClientModal({
                 <View className="mt-1 flex-row gap-2.5">
                     <TouchableOpacity
                         className="flex-1 items-center rounded-[12px] border p-3.5"
-                        style={{ borderColor: colors.border }}
+                        style={{borderColor: colors.border}}
                         onPress={onClose}
                     >
-                        <Text className="text-[15px] font-semibold" style={{ color: colors.foreground }}>
+                        <Text className="text-[15px] font-semibold" style={{color: colors.foreground}}>
                             Cancel
                         </Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                         className="flex-[2] items-center rounded-[12px] p-3.5"
-                        style={{ backgroundColor: colors.primary }}
+                        style={{backgroundColor: colors.primary}}
                         onPress={handleSave}
                     >
                         <Text className="text-[15px] font-bold text-white">Save Client</Text>

@@ -1,6 +1,4 @@
 import React, {createContext, ReactNode, useCallback, useContext, useEffect, useState} from 'react';
-import {toKeyAlias} from "@babel/types";
-import uid = toKeyAlias.uid;
 import {useAuth} from "@/context/auth-context";
 import {supabase} from "@/lib/supabase";
 import {Alert} from "react-native";
@@ -46,80 +44,68 @@ export interface Quote {
     photos: string[];
 }
 
+export interface Payment {
+    amount: number;
+    method: "cash" | "credit_card" | "paypal";
+    date: string;
+    notes: string;
+}
+
+interface Job {
+    id: string;
+    jobName: string;
+    quoteId: string;
+    clientId: string;
+    clientName: string;
+    status: "schedule" | "in-progress" | "completed" | "invoiced" | "paid";
+    handymanId: string;
+    scheduleDate: string;
+    completedDate?: string;
+    totalAmount: number;
+    laborCost: number;
+    materialsCost: number;
+    notes: string;
+    beforePhotos: string[];
+    afterPhotos: string[];
+    payments: Payment[]
+    createdAt: string;
+}
+
 type QuoteContextType = {
+    // QUOTE
     quotes: Quote[];
     addQuote: (q: Omit<Quote, "id" | "createdAt">) => Quote;
-    updateQuote: (id: string, updates: Partial<Quote>) => void;
+    updateQuote: (id: string | undefined, updates: Partial<Quote>) => void;
     deleteQuote: (id: string) => void;
     clearQuotes: () => void;
-
+    // LINE ITEMS
     lineItems: Line[];
     updateLineItem: (idx: number, field: keyof LineItem, value: string | number) => void;
     removeLineItem: (idx: number) => void;
     addLineItem: () => void;
     setLineItems: React.Dispatch<React.SetStateAction<Line[]>>;
-
+    // CLIENTS
     clients: any[];
+    updateClient: (id: string | undefined, updates: Partial<Client>) => void;
+    deleteClient: (id: string) => void;
+    // JOBS
+    jobs: Job[];
+    updateJob: (id: string | undefined, updates: Partial<Job>) => void;
 };
 
 const QuoteContext = createContext<QuoteContextType | undefined>(undefined);
 
 export function QuoteProvider({children}: { children: ReactNode }) {
     const {user} = useAuth();
-
-    const [clients, setClients] = useState<any[]>([]);
+    const [clients, setClients] = useState<Client[]>([]);
     const [quotes, setQuotes] = useState<Quote[]>([]);
+    const [jobs, setJobs] = useState<any[]>([]);
     const [lineItems, setLineItems] = useState<Line[]>([{
         description: "Labor",
         quantity: 1,
         unitPrice: 0,
         isLabor: true
     }]);
-
-    const addQuote = useCallback(
-        (q: Omit<Quote, "id" | "createdAt">): Quote => {
-            const newQuote: Quote = {...q, id: uid(), createdAt: new Date().toISOString()};
-            setQuotes((prev) => {
-                return [newQuote, ...prev];
-            });
-            return newQuote;
-        },
-        []
-    );
-
-    const updateQuote = useCallback(
-        (id: string, updates: Partial<Quote>) => {
-            setQuotes((prev) => {
-                return prev.map((q) => (q.id === id ? {...q, ...updates} : q));
-            });
-        },
-        []
-    );
-
-    const deleteQuote = useCallback(
-        (id: string) => {
-            setQuotes((prev) => {
-                return prev.filter((q) => q.id !== id);
-            });
-        },
-        []
-    );
-
-    const clearQuotes = () => setQuotes([]);
-
-    const updateLineItem = (idx: number, field: keyof LineItem, value: string | number) => {
-        setLineItems((prev) =>
-            prev.map((li, i) => (i === idx ? {...li, [field]: value} : li))
-        );
-    };
-
-    const removeLineItem = (idx: number) => {
-        setLineItems((prev) => prev.filter((_, i) => i !== idx));
-    };
-
-    const addLineItem = () => {
-        setLineItems((prev) => [...prev, {description: "", quantity: 1, unitPrice: 0, isLabor: true}]);
-    };
 
     useEffect(() => {
         const fetchClients = async () => {
@@ -137,9 +123,107 @@ export function QuoteProvider({children}: { children: ReactNode }) {
             }
         };
 
+        const fetchJobs = async () => {
+            try {
+                const {data, error} = await supabase
+                    .from('jobs')
+                    .select()
+                    .eq("handyman_id", user?.id)
+                if (error) throw error;
+                setJobs(data || []);
+            } catch (error: any) {
+                console.error(error);
+                Alert.alert('Error', 'Failed to load jobs. Please try again later.');
+            }
+        }
+
         if (!user?.id) return;
         fetchClients();
+        fetchJobs();
     }, [user?.id]);
+
+    // QUOTES
+    const addQuote = useCallback(
+        (q: Omit<Quote, "id" | "createdAt">): Quote => {
+            const newQuote: Quote = {...q, id: "", createdAt: new Date().toISOString()};
+            setQuotes((prev) => {
+                return [newQuote, ...prev];
+            });
+            setLineItems(q.lineItems)
+            return newQuote;
+        },
+        []
+    );
+
+    const updateQuote = useCallback(
+        (id: string | undefined, updates: Partial<Quote>) => {
+            setQuotes((prev) => {
+                const nextQuotes = [...prev];
+
+                if (id) {
+                    return nextQuotes.map((quote) =>
+                        quote.id === id ? {...quote, ...updates} : quote
+                    );
+                }
+
+                if (nextQuotes.length === 0) {
+                    return nextQuotes;
+                }
+
+                nextQuotes[0] = {...nextQuotes[0], ...updates};
+                return nextQuotes;
+            });
+
+        },
+        []
+    );
+
+    const deleteQuote = useCallback(
+        (id: string) => {
+            setQuotes((prev) => {
+                return prev.filter((q) => q.id !== id);
+            });
+        },
+        []
+    );
+
+    const clearQuotes = () => {
+        setLineItems([])
+        setQuotes([])
+    };
+
+    //  LINE ITEMS
+    const updateLineItem = (idx: number, field: keyof LineItem, value: string | number) => {
+        setLineItems((prev) =>
+            prev.map((li, i) => (i === idx ? {...li, [field]: value} : li))
+        );
+    };
+
+    const removeLineItem = (idx: number) => {
+        setLineItems((prev) => prev.filter((_, i) => i !== idx));
+    };
+
+    const addLineItem = () => {
+        setLineItems((prev) => [...prev, {description: "", quantity: 1, unitPrice: 0, isLabor: true}]);
+    };
+
+    // JOBS
+    const updateJob = (id: string | undefined, updates: Partial<any>) => {
+        setJobs((prev) =>
+            prev.map((job) => job.id === id ? {...job, ...updates} : job)
+        )
+    };
+
+    // CLIENTS
+    const updateClient = (id: string | undefined, updates: Partial<Client>) => {
+        setClients((prev) =>
+            prev.map((client) => client.id === id ? {...client, ...updates} : client)
+        )
+    };
+
+    const deleteClient = (id: string) => {
+        setClients((prev) => prev.filter((client) => client.id !== id));
+    }
 
     return (
         <QuoteContext.Provider value={{
@@ -156,6 +240,11 @@ export function QuoteProvider({children}: { children: ReactNode }) {
             setLineItems,
 
             clients,
+            updateClient,
+            deleteClient,
+
+            jobs,
+            updateJob,
         }}>
             {children}
         </QuoteContext.Provider>

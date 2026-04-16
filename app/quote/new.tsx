@@ -13,18 +13,20 @@ import {Feather} from "@expo/vector-icons";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {calculateJobCost, JOB_TEMPLATES} from "@/data/templates";
 
-interface LineItem {
-    description: string;
-    quantity: number;
-    unitPrice: number;
-    isLabor: boolean;
-    photoUri?: string;
-}
-
 export default function NewQuote() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const {clients, lineItems, removeLineItem, updateLineItem, addLineItem, setLineItems} = useQuote();
+    const {
+        quotes,
+        clients,
+        lineItems,
+        updateQuote,
+        clearQuotes,
+        removeLineItem,
+        updateLineItem,
+        addLineItem,
+        setLineItems
+    } = useQuote();
     const [step, setStep] = useState<"photo" | "details">("photo");
     const [photos, setPhotos] = useState<string[]>([]);
     const [jobName, setJobName] = useState("");
@@ -259,6 +261,7 @@ export default function NewQuote() {
                         text: "Use template",
                         onPress: () => {
                             setJobName(match.name);
+                            updateQuote(undefined, {jobName: match.name});
                             setLineItems([
                                 {
                                     description: `Labor (${match.timeEstimateHours}h @ $${match.laborRate}/hr)`,
@@ -286,7 +289,7 @@ export default function NewQuote() {
         }
     };
 
-    if (step === "photo") {
+    if (step === "photo" && quotes.length === 0) {
         return (
             <View className="flex-1 bg-background">
                 <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: insets.top + 16}}>
@@ -385,7 +388,10 @@ export default function NewQuote() {
             behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
             <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: insets.top + 16}}>
-                <TouchableOpacity onPress={() => setStep("photo")}>
+                <TouchableOpacity onPress={() => {
+                    clearQuotes()
+                    setStep("photo")
+                }}>
                     <Feather name="arrow-left" size={24} color=""/>
                 </TouchableOpacity>
                 <Text className="text-foreground text-[17px] font-bold">
@@ -417,10 +423,10 @@ export default function NewQuote() {
                     </Text>
                     <TextInput
                         className="text-foreground bg-card border border-zinc-300 rounded-[12px] px-4 py-3 text-[15px]"
-                        value={jobName}
-                        onChangeText={setJobName}
+                        value={quotes[0].jobName}
+                        onChangeText={(value) => updateQuote(undefined, {jobName: value})}
                         placeholder="e.g. Faucet Replacement"
-                        // placeholderTextColor={colors.mutedForeground}
+                        // placeholderTextColor={colors.mutedForeground
                     />
                 </View>
 

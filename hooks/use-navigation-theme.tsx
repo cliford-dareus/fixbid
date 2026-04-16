@@ -7,6 +7,8 @@ import * as NavigationBar from 'expo-navigation-bar';
 
 export default function useThemedNavigation() {
     const {theme} = useTheme();
+    const isIOS = Platform.OS === "ios";
+    const isWeb = Platform.OS === "web";
     const colors = useThemeColors();
     const isDark = theme === 'dark';
 
@@ -38,6 +40,8 @@ export default function useThemedNavigation() {
         ThemedStatusBar,
         screenOptions,
         colors,
-        isDark
+        isDark,
+        isIOS,
+        isWeb
     };
 }

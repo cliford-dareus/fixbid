@@ -1,5 +1,4 @@
 import "./global.css";
-
 import {
     Inter_400Regular,
     Inter_500Medium,
@@ -37,7 +36,10 @@ export default function RootLayout() {
     }, [fontsLoaded, fontError]);
 
     useEffect(() => {
-        setupNotifications();
+        const setNotification = async () => {
+            return await  setupNotifications();
+        }
+        setNotification().then(r => console.log("PUSH NOTIFICATION TOKEN", r));
     }, []);
 
     if (!fontsLoaded && !fontError) return null;

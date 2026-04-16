@@ -1,5 +1,5 @@
 import React from 'react';
-import {View, Text, TouchableOpacity, ScrollView, Platform} from 'react-native';
+import {View, Text, TouchableOpacity, ScrollView} from 'react-native';
 import {useRouter} from 'expo-router';
 import {useAuth} from "@/context/auth-context";
 import {Feather} from "@expo/vector-icons";
@@ -31,11 +31,7 @@ function MetricCard({
 export default function Dashboard() {
     const router = useRouter();
     const {user} = useAuth();
-
-    // TODO: Add this in a hook
-    const isIOS = Platform.OS === "ios";
-    const isWeb = Platform.OS === "web";
-    const {isDark, colors} = useThemedNavigation()
+    const {isDark, isIOS, isWeb} = useThemedNavigation();
 
     const todaysJobs = []
 
@@ -80,7 +76,7 @@ export default function Dashboard() {
                     </View>
                     <TouchableOpacity
                         className="bg-primary rounded-2xl px-4 py-2 flex-row items-center gap-2"
-                        onPress={() => router.push("/(tabs)/quotes/new")}
+                        onPress={() => router.push("/quote/new")}
                         activeOpacity={0.85}
                     >
                         <Feather name="plus" size={18} color="bg-primary"/>
