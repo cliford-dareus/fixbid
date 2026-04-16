@@ -18,6 +18,7 @@ import {StripeProvider} from '@stripe/stripe-react-native';
 import {ProfileProvider} from "@/context/profile-context";
 // eslint-disable-next-line import/no-named-as-default
 import ThemeProvider from "@/context/theme-context";
+import {setupNotifications} from "@/lib/notification";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,6 +35,10 @@ export default function RootLayout() {
             SplashScreen.hideAsync();
         }
     }, [fontsLoaded, fontError]);
+
+    useEffect(() => {
+        setupNotifications();
+    }, []);
 
     if (!fontsLoaded && !fontError) return null;
 

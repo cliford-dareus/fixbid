@@ -41,6 +41,7 @@
         }
 
         try {
+            console.log("Fetching quote with ID:", quoteId);
             const res = await fetch(`https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1/public-quote?id=${quoteId}`);
             const result = await res.json();
 
