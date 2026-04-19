@@ -98,6 +98,7 @@ type QuoteContextType = {
     jobs: Job[];
     updateJob: (id: string | undefined, updates: Partial<Job>) => void;
     getTodayJobs: () => Job[];
+    getMonthRevenue: (month?: number, year?: number) => number;
 };
 
 const QuoteContext = createContext<QuoteContextType | undefined>(undefined);
@@ -108,12 +109,9 @@ export function QuoteProvider({children}: { children: ReactNode }) {
     const [newQuote, setNewQuote] = useState<Quote | null>(null)
     const [quotes, setQuotes] = useState<Quote[]>([]);
     const [jobs, setJobs] = useState<any[]>([]);
-    const [lineItems, setLineItems] = useState<Line[]>([{
-        description: "Labor",
-        quantity: 1,
-        unitPrice: 0,
-        isLabor: true
-    }]);
+    const [lineItems, setLineItems] = useState<Line[]>([]);
+
+    console.log("LINE ITEMS", lineItems);
 
     useEffect(() => {
         const fetchClients = async () => {
@@ -215,7 +213,6 @@ export function QuoteProvider({children}: { children: ReactNode }) {
         (q: Omit<Quote, "id" | "createdAt">) => {
             const newQuote: Quote = {...q, id: "", createdAt: new Date().toISOString()};
             setNewQuote(newQuote);
-            setLineItems(q.lineItems)
             return newQuote;
         },
         []
@@ -280,6 +277,18 @@ export function QuoteProvider({children}: { children: ReactNode }) {
         setClients((prev) => prev.filter((client) => client.id !== id));
     }
 
+    const getMonthRevenue = useCallback((month?: number, year?: number) => {
+        const now = new Date();
+        return jobs.filter((job: Job) => {
+            const d = new Date(job.createdAt);
+            return d.getMonth() === (month || now.getMonth()) && d.getFullYear() === (year || now.getFullYear());
+        })
+            .reduce((acc, job: Job) => {
+                const paid = job.payments.reduce((s, payment) => s + payment.amount, 0);
+                return acc + paid;
+            }, 0);
+    }, [jobs]);
+
     return (
         <QuoteContext.Provider value={{
             newQuote,
@@ -304,6 +313,7 @@ export function QuoteProvider({children}: { children: ReactNode }) {
             jobs,
             updateJob,
             getTodayJobs,
+            getMonthRevenue,
         }}>
             {children}
         </QuoteContext.Provider>

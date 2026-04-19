@@ -1,35 +1,26 @@
-import * as FileSystem from 'expo-file-system';
-import {decode} from 'base64-arraybuffer';
-import {supabase} from './supabase';
+import {File} from 'expo-file-system';
+import { Buffer } from 'buffer';
+import {supabase} from "@/lib/supabase";
 
-export const uploadQuotePhoto = async (uri: string, quoteId?: string): Promise<string | null> => {
-    try {
-        const fileName = `quote-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+export async function uploadPhotoFromUri(uri: string, userId: string) {
+    const file = new File(uri);
+    const fh = file.open();
+    const bytes = fh.readBytes(fh.size!);
 
-        // Read file as base64
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-            encoding: FileSystem.EncodingType.Base64,
+    const buffer = Buffer.from(bytes);
+    const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
+    const contentType = fileExt === 'jpg' ? 'image/jpeg' : `image/${fileExt}`;
+    const fileName = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 15)}.${fileExt}`;
+
+    const { error } = await supabase.storage
+        .from('quote-photos')
+        .upload(fileName, buffer, {
+            contentType,
+            upsert: false,
         });
 
-        const arrayBuffer = decode(base64);
+    if (error) throw error;
 
-        const {data, error} = await supabase.storage
-            .from('quote-photos')
-            .upload(fileName, arrayBuffer, {
-                contentType: 'image/jpeg',
-                upsert: true,
-            });
-
-        if (error) throw error;
-
-        // Get public URL
-        const {data: urlData} = supabase.storage
-            .from('quote-photos')
-            .getPublicUrl(fileName);
-
-        return urlData.publicUrl;
-    } catch (error) {
-        console.error('Upload error:', error);
-        return null;
-    }
-};
+    const { data } = supabase.storage.from('quote-photos').getPublicUrl(fileName);
+    return data.publicUrl;
+}

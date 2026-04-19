@@ -6,7 +6,6 @@ import {
     FileText,
     Home,
     List,
-    LogOut,
     MessageCircle,
     Plus,
     Toolbox,
@@ -18,8 +17,12 @@ import {useAuth} from "@/context/auth-context";
 import React, {useEffect, useState} from "react";
 import {BlurView} from "expo-blur";
 import useThemedNavigation from "@/hooks/use-navigation-theme";
-import Animated, {CSSAnimationKeyframes, Keyframe, ZoomInDown, ZoomOutEasyDown} from "react-native-reanimated";
+import Animated, {
+    FadeIn, FadeOut, useAnimatedStyle, useDerivedValue,
+    withSpring, withTiming,
+} from "react-native-reanimated";
 import {GlassView} from "expo-glass-effect";
+import {interpolateColor} from "react-native-reanimated/src";
 
 export default function ClassicTabLayout() {
     const {user, session, signOut} = useAuth();
@@ -117,75 +120,147 @@ export default function ClassicTabLayout() {
                 {/*    }}*/}
                 {/*/>*/}
             </Tabs>
-
-            {/* The Action Menu Overlay */}
-            <ActionMenu menuVisible={menuVisible} onClose={() => setMenuVisible(false)}/>
         </>
     );
 }
-
-const animateMenu: CSSAnimationKeyframes = {
-    '0%': {
-        bottom: -80,
-        right: -70,
-        transform: 'scale(0)',
-    },
-    '100%': {
-        right: 16,
-        bottom: 100,
-    },
-};
 
 // --- The Action Menu Component ---
 function ActionMenu({menuVisible, onClose}: { menuVisible: boolean, onClose: () => void }) {
+    const BUTTON_WIDTH = 64;
+    const BUTTON_HEIGHT = 64;
+    const MODAL_WIDTH = 200;
+    const MODAL_HEIGHT = 230;
+
+    const progress = useDerivedValue(() => {
+        return withTiming(menuVisible ? 1 : 0, {duration: 100})
+    });
+
+    const animatedContainerStyle = useAnimatedStyle(() => {
+        return {
+            width: withSpring(menuVisible ? MODAL_WIDTH : BUTTON_WIDTH),
+            height: withSpring(menuVisible ? "auto" : BUTTON_HEIGHT),
+            borderRadius: withSpring(menuVisible ? 24 : 99999),
+            // position: menuVisible ? 'absolute' : 'static',
+            right: withSpring(menuVisible ? 116 : 0),
+
+            backgroundColor: interpolateColor(
+                progress.value,
+                [0, 1],
+                ['#f97316', '#18181BB2']
+            ),
+            transform: [
+                {translateY: withSpring(menuVisible ? -90 : 0)},
+                {translateX: menuVisible ? 100 : 0}
+            ],
+
+            elevation: menuVisible ? 50 : 5,
+            zIndex: menuVisible ? 99999 : 0,
+            shadowOpacity: withSpring(menuVisible ? 0.3 : 0.1),
+        }
+    })
+
+    const customExiting = (values: any) => {
+        'worklet';
+        const animations = {
+            originY: withTiming(0, {duration: 1700}),
+            opacity: withTiming(0, {duration: 1700}),
+            width: withTiming(64, {duration: 1700}),
+            height: withTiming(64, {duration: 1700}),
+            transform: [
+                {scale: withTiming(0.5, {duration: 1700})},
+            ],
+        }
+
+        const initialValues = {
+            originY: values.currentOriginY,
+            width: values.currentWidth,
+            height: values.currentHeight,
+            opacity: 1,
+            transform: [
+                {scale: 1},
+            ],
+        }
+        return {
+            animations,
+            initialValues,
+        }
+    };
+
     return (
-        <>
-            {menuVisible && <Pressable onPress={onClose} className="absolute inset-0 z-40 bg-black/5">
-                <Animated.View
-                    style={{
-                        animationName: animateMenu,
-                        animationDuration: 500,
-                        animationTimingFunction: 'ease-in-out',
-                        animationDelay: 5,
-                        animationFillMode: 'forwards',
-                    }}
-                    entering={ZoomInDown}
-                    exiting={ZoomOutEasyDown}
-                    className="absolute right-[-70] w-64 overflow-hidden rounded-[32px] border border-white/10 shadow-2xl"
+        <Animated.View
+            style={[{
+                position: menuVisible ?'absolute' : 'static',
+                overflow: 'hidden',
+                justifyContent: 'center',
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: {width: 0, height: 10},
+                shadowRadius: 10,
+                marginLeft: 16,
+            }, animatedContainerStyle]}
+            exiting={customExiting}
+        >
+            {!menuVisible &&
+                <TouchableOpacity
+                    onPress={onClose}
+                    activeOpacity={0.7}
+                    className="w-[64px] h-[64px] flex-1  items-center justify-center"
+                    style={{transform: [{rotate: menuVisible ? '45deg' : '0deg'}]}}
                 >
-                    <GlassView
-                        style={{
-                            padding: 16,
-                            borderRadius: 24,
-                            backgroundColor: 'rgb(24 24 27/0.7)',
-                        }}
-                        glassEffectStyle="clear"
-                    >
-                        {/* Section 1 */}
-                        <MenuItem icon={<Activity size={20} color="#22c55e"/>} label="Jobs Statistics"
-                                  onPress="/jobs/stats"/>
-                        {/*<MenuItem icon={<Utensils size={20} color="#f97316" />} label="Track Calories" showArrow />*/}
-                        {/*<MenuItem icon={<Heart size={20} color="#ef4444" />} label="Track Heart Rate" showArrow />*/}
-                        {/*<MenuItem icon={<Scale size={20} color="#06b6d4" />} label="Log Weight" />*/}
+                    <Plus size={32} color="white" strokeWidth={3}/>
+                </TouchableOpacity>}
 
-                        {/* Divider */}
-                        <View className="h-[1px] bg-white/10 my-3 mx-2"/>
+            {menuVisible && <Animated.View
+                className="w-full h-full"
+                entering={FadeIn.delay(500)}
+            >
+                <GlassView
+                    style={{
+                        padding: 16,
+                        borderRadius: 24,
+                        backgroundColor: 'rgb(24 24 27/0.7)',
+                    }}
+                    glassEffectStyle="clear"
+                >
+                    {/* Section 1 */}
+                    <MenuItem icon={<Activity size={20} color="#22c55e"/>} label="Jobs Statistics"
+                              onPress="/jobs/stats"/>
+                    {/*<MenuItem icon={<Utensils size={20} color="#f97316" />} label="Track Calories" showArrow />*/}
+                    {/*<MenuItem icon={<Heart size={20} color="#ef4444" />} label="Track Heart Rate" showArrow />*/}
+                    {/*<MenuItem icon={<Scale size={20} color="#06b6d4" />} label="Log Weight" />*/}
 
-                        {/* Section 2 */}
-                        <MenuItem icon={<Trophy size={20} color="white"/>} label="Create Quote" onPress="/quote/new"/>
-                        <MenuItem icon={<User size={20} color="white"/>} label="Create Client" onPress="/client/new"/>
-                        <MenuItem icon={<Users size={20} color="white"/>} label="New Group"/>
-                    </GlassView>
-                </Animated.View>
-            </Pressable>}
-        </>
+                    {/* Divider */}
+                    <View className="h-[1px] bg-white/10 my-3 mx-2"/>
+
+                    {/* Section 2 */}
+                    <MenuItem icon={<Trophy size={20} color="white"/>} label="Create Quote"
+                              onPress="/quote/new" onClose={onClose}/>
+                    <MenuItem icon={<User size={20} color="white"/>} label="Create Client"
+                              onPress="/client/new" onClose={onClose}/>
+                    <MenuItem icon={<Users size={20} color="white"/>} label="New Group"/>
+                </GlassView>
+            </Animated.View>}
+        </Animated.View>
     );
 }
 
-function MenuItem({icon, label, showArrow, onPress}: { icon: any, label: string, showArrow?: boolean, onPress?: any }) {
+function MenuItem({icon, label, showArrow, onPress, onClose}: {
+    icon: any,
+    label: string,
+    showArrow?: boolean,
+    onPress?: any,
+    onClose?: any
+}) {
+    const closeMenu = () => {
+        onClose()
+    }
+
     return (
         <TouchableOpacity
-            onPress={() => router.push(onPress)}
+            onPress={() => {
+                closeMenu()
+                router.push(onPress)
+            }}
             className="flex-row items-center justify-between py-3 px-2 active:bg-white/10 rounded-xl">
             <View className="flex-row items-center">
                 <View className="mr-3">{icon}</View>
@@ -200,9 +275,8 @@ function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
     return (
         <>
             <View className="absolute bottom-10 w-full flex-row items-center justify-center px-5">
-                {/* 1. The Pill-Shaped Container */}
-                <View
-                    className="flex-1 flex-row bg-zinc-900/90 border border-zinc-800 rounded-full h-16 items-center justify-around px-2 shadow-lg">
+                {/* The Pill-Shaped Container */}
+                <View className="flex-1 flex-row flex-shrink bg-secondary-foreground border border-zinc-800 rounded-full h-16 items-center justify-around px-2 shadow-lg">
                     {state.routes.filter((route: any) => route.name !== "profile").map((route: any, index: number) => {
                         const isFocused = state.index === index;
 
@@ -231,27 +305,41 @@ function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
                             <TouchableOpacity
                                 key={route.key}
                                 onPress={onPress}
-                                className={`items-center justify-center p-3 rounded-full ${isFocused ? 'bg-zinc-800' : ''}`}
+                                className={`relative items-center justify-center p-3 rounded-full ${isFocused ? 'bg-zinc-800' : ''}`}
                             >
                                 {Icon && <Icon
                                     size={24}
-                                    color={isFocused ? '#06b6d4' : '#71717a'}
+                                    color={isFocused ? '#f97316' : '#71717a'}
+                                    className="z-50"
                                 />}
-                                {isFocused && <View className="w-1 h-1 bg-cyan-500 rounded-full mt-1"/>}
+                                {isFocused &&
+                                    <GlassView
+                                        glassEffectStyle="clear"
+                                        style={{
+                                            position: 'absolute',
+                                            inset: 0,
+                                            borderRadius: 24,
+                                            zIndex: -1,
+                                            isolation: 'isolate',
+                                            backgroundColor: 'rgb(24 24 27/0.7)',
+                                        }}
+                                    />}
                             </TouchableOpacity>
                         );
                     })}
                 </View>
 
-                <TouchableOpacity
-                    onPress={onPlusPress}
-                    activeOpacity={0.7}
-                    className={`ml-4 w-16 h-16 rounded-full items-center justify-center shadow-lg ${isMenuOpen ? 'bg-zinc-800 rotate-45' : 'bg-cyan-600'}`}
-                    style={{transform: [{rotate: isMenuOpen ? '45deg' : '0deg'}]}}
-                >
-                    <Plus size={32} color="white" strokeWidth={3}/>
-                </TouchableOpacity>
+                {/* Action Menu Button/Modal */}
+                <ActionMenu menuVisible={isMenuOpen} onClose={onPlusPress}/>
+
+                {/* The Action Menu Overlay */}
+                {isMenuOpen &&
+                    <View style={{width: 66, height: 65}} className="ml-4 border border-transparent rounded-full"/>}
             </View>
+
+            {isMenuOpen && <Pressable onPress={onPlusPress} className="absolute inset-0 z-40 bg-black/5">
+                <Animated.View entering={FadeIn} exiting={FadeOut} style={{}}/>
+            </Pressable>}
         </>
     );
 }

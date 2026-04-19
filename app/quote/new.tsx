@@ -1,33 +1,35 @@
 import React, {useState} from 'react';
 import {View, Text, TextInput, TouchableOpacity, ScrollView, Alert, KeyboardAvoidingView, Platform} from 'react-native';
 import {useRouter} from 'expo-router';
-import {useQuote} from "@/context/quote-context";
+import {LineItem, useQuote} from "@/context/quote-context";
 import {Image} from "expo-image";
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import {supabase} from "@/lib/supabase";
-import {uploadQuotePhoto} from "@/lib/upload-photo";
+import {uploadPhotoFromUri} from "@/lib/upload-photo";
 import {Feather} from "@expo/vector-icons";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {calculateJobCost, JOB_TEMPLATES} from "@/data/templates";
+import useThemedNavigation from "@/hooks/use-navigation-theme";
 
 export default function NewQuote() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const {
         newQuote,
-        updateNewQuote,
         clients,
         lineItems,
-        updateQuote,
+        addNewQuote,
+        updateNewQuote,
         clearNewQuote,
         removeLineItem,
         updateLineItem,
         addLineItem,
         setLineItems
     } = useQuote();
+    const {colors} = useThemedNavigation();
     const [step, setStep] = useState<"photo" | "details">("photo");
     const [photos, setPhotos] = useState<string[]>([]);
     const [jobName, setJobName] = useState(newQuote?.jobName || "");
@@ -86,27 +88,38 @@ export default function NewQuote() {
     };
 
     const handleSave = async () => {
-        if (!clientName.trim() || lineItems.length === 0) {
+        if ((!selectedClientId && !clientName.trim()) || lineItems.length === 0) {
             Alert.alert('Error', 'Client name and at least one item required');
             return;
         }
 
         try {
             const {data: {user}} = await supabase.auth.getUser();
-
             if (!user) {
                 Alert.alert('Not logged in');
                 return;
             }
+
+            // add the photos to supabase bucket
+            const photoUploadPromises = photos.map(async (photoUri) => {
+                return uploadPhotoFromUri(photoUri, user.id);
+            })
+
+            const photoUrls = await Promise.all(photoUploadPromises);
+            console.log('Photo URLs:', photoUrls);
+
+            const client = clients.find(c => c.id === selectedClientId);
             // 1. Create the Quote
             const {data: quote, error: quoteError} = await supabase
                 .from('quotes')
                 .insert({
                     handyman_id: user.id,
-                    client_name: "clientName",
-                    client_phone: "clientPhone",
-                    job_name: jobName,
+                    client_name: client.name || clientName,
+                    client_phone: client.phone || clientPhone,
+                    job_name: newQuote?.jobName || jobName,
+                    client_id: client.id,
                     notes: notes,
+                    photos: photoUrls.map(url => url) || [],
                     total_amount: total,
                     status: 'draft',
                 })
@@ -114,21 +127,16 @@ export default function NewQuote() {
                 .single();
 
             if (quoteError) throw quoteError;
-
+            console.log('Quote created:', lineItems);
             // 2. Upload photos + Save Line Items
             for (const item of lineItems) {
-                let photoUrl = null;
-                if (item.photoUri) {
-                    photoUrl = await uploadQuotePhoto(item.photoUri, quote.id);
-                }
-
                 await supabase.from('quote_line_items').insert({
                     quote_id: quote.id,
                     description: item.description,
                     quantity: item.quantity,
                     unit_price: item.unitPrice,
                     is_labor: item.isLabor,
-                    photo_url: photoUrl,
+                    photo_url: "",
                 });
             }
 
@@ -261,7 +269,17 @@ export default function NewQuote() {
                     {
                         text: "Use template",
                         onPress: () => {
-                            setJobName(match.name);
+                            addNewQuote({
+                                clientId: "",
+                                clientName: "",
+                                jobName: match.name,
+                                lineItems: [],
+                                notes: "",
+                                total: 0,
+                                status: "draft",
+                                photos: [],
+                            })
+
                             setLineItems([
                                 {
                                     description: `Labor (${match.timeEstimateHours}h @ $${match.laborRate}/hr)`,
@@ -278,6 +296,8 @@ export default function NewQuote() {
                                         isLabor: true
                                     })),
                             ]);
+
+                            console.log("Suggested template:", lineItems);
                             // Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                             setStep("details");
                         },
@@ -315,7 +335,16 @@ export default function NewQuote() {
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="my-2">
                             {photos.map((uri, i) => (
                                 <View key={i} className="mr-2.5 relative">
-                                    <Image source={{uri}} className="w-[100px] h-[100px] rounded-[10px]"/>
+                                    <Image
+                                        source={{uri}}
+                                        className="rounded-[10px]"
+                                        style={{
+                                            width: 100,
+                                            height: 100,
+                                            borderRadius: 10
+                                        }}
+                                        contentFit="cover"
+                                    />
                                     <TouchableOpacity
                                         className="bg-destructive absolute top-1 right-1 w-5 h-5 rounded-full items-center justify-center"
                                         onPress={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
@@ -329,7 +358,7 @@ export default function NewQuote() {
 
                     <View className="flex-row gap-3">
                         <TouchableOpacity
-                            className="bg-card flex-1 rounded-[14px] border p-5 items-center gap-2.5"
+                            className="bg-card flex-1 rounded-[14px] border border-zinc-200 p-5 items-center gap-2.5"
                             onPress={takePhoto}
                             activeOpacity={0.8}
                         >
@@ -340,7 +369,7 @@ export default function NewQuote() {
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                            className="bg-card flex-1 rounded-[14px] border p-5 items-center gap-2.5"
+                            className="bg-card flex-1 rounded-[14px] border border-zinc-200 p-5 items-center gap-2.5"
                             onPress={pickPhoto}
                             activeOpacity={0.8}
                         >
@@ -356,7 +385,7 @@ export default function NewQuote() {
                             Job Description (optional)
                         </Text>
                         <TextInput
-                            className="text-foreground bg-card border rounded-[12px] px-4 py-3 text-[15px]"
+                            className="text-foreground bg-card border border-zinc-200 rounded-[12px] px-4 py-3 text-[15px]"
                             value={jobName}
                             onChangeText={setJobName}
                             placeholder="e.g. Faucet replacement, Drywall patch..."
@@ -412,7 +441,17 @@ export default function NewQuote() {
                 {photos.length > 0 && (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} className="my-2">
                         {photos.map((uri, i) => (
-                            <Image key={i} source={{uri}} className="mr-2.5 w-[100px] h-[100px] rounded-[10px]"/>
+                            <Image
+                                key={i}
+                                source={{uri}}
+                                className="mr-2.5"
+                                style={{
+                                    width: 100,
+                                    height: 100,
+                                    borderRadius: 10,
+                                }}
+                                contentFit="cover"
+                            />
                         ))}
                     </ScrollView>
                 )}
@@ -424,7 +463,7 @@ export default function NewQuote() {
                     <TextInput
                         className="text-foreground bg-card border border-zinc-300 rounded-[12px] px-4 py-3 text-[15px]"
                         value={newQuote?.jobName}
-                        onChangeText={(value) => updateQuote(undefined, {jobName: value})}
+                        onChangeText={(value) => updateNewQuote("jobName", value)}
                         placeholder="e.g. Faucet Replacement"
                         // placeholderTextColor={colors.mutedForeground
                     />
@@ -449,11 +488,11 @@ export default function NewQuote() {
                             {clients.map((c) => (
                                 <TouchableOpacity
                                     key={c.id}
-                                    className="mr-2 rounded-full border px-3.5 py-2"
-                                    // style={{
-                                    //     backgroundColor: selectedClientId === c.id ? colors.primary : colors.card,
-                                    //     borderColor: selectedClientId === c.id ? colors.primary : colors.border,
-                                    // }}
+                                    className="mr-2 rounded-full border border-zinc-200 px-3.5 py-2"
+                                    style={{
+                                        backgroundColor: selectedClientId === c.id ? colors.primary : colors.background,
+                                        borderColor: selectedClientId === c.id ? colors.primary : colors.border,
+                                    }}
                                     onPress={() => setSelectedClientId(c.id)}
                                 >
                                     <Text

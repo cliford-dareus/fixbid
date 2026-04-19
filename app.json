@@ -40,6 +40,12 @@
         }
       ],
       [
+        "expo-image",
+        {
+          "disableLibdav1d": true
+        }
+      ],
+      [
         "@stripe/stripe-react-native",
         {
           "merchantIdentifier": "merchant.com.yourcompany.yourapp",

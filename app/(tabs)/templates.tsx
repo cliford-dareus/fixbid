@@ -1,7 +1,6 @@
 import React, {useState} from 'react';
 import {View, Text, TouchableOpacity, TextInput, Platform, FlatList} from 'react-native';
 import {router} from 'expo-router';
-import {Plus} from 'lucide-react-native';
 import {calculateJobCost, CATEGORIES, JOB_TEMPLATES, JobTemplate} from "@/data/templates";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {Feather} from "@expo/vector-icons";
@@ -14,7 +13,7 @@ export default function TemplatesScreen() {
     const [search, setSearch] = useState("");
     const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
-    const {isDark, isWeb, isIOS} = useThemedNavigation()
+    const {isDark, isWeb, isIOS, colors} = useThemedNavigation();
 
     const filtered = JOB_TEMPLATES.filter((t) => {
         const matchSearch =
@@ -52,7 +51,7 @@ export default function TemplatesScreen() {
                     {JOB_TEMPLATES.length} templates ready
                 </Text>
                 <View className="bg-card border border-zinc-300 flex-row items-center gap-3 rounded-2xl px-4 py-2 mb-3">
-                    <Feather name="search" size={16} color="white"/>
+                    <Feather name="search" size={16} color={colors.icon}/>
                     <TextInput
                         className="flex-1 text-sm"
                         placeholder="Search templates..."
@@ -101,7 +100,7 @@ export default function TemplatesScreen() {
                 data={filtered}
                 keyExtractor={(t) => t.id}
                 contentContainerStyle={{paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100}}
-                renderItem={({item}) => <TemplateCard template={item}/>}
+                renderItem={({item}) => <TemplateCard template={item} colors={colors}/>}
                 ListEmptyComponent={
                     <View className="flex-row items-center justify-center pt-[80px] gap-[12px]">
                         <Feather name="search" size={32} color=""/>
@@ -111,20 +110,16 @@ export default function TemplatesScreen() {
                     </View>
                 }
             />
-
-            {/* Floating Add Button (for custom template later) */}
-            <TouchableOpacity
-                className="absolute bottom-8 right-8 bg-blue-600 w-16 h-16 rounded-full items-center justify-center shadow-lg">
-                <Plus size={32} color="white"/>
-            </TouchableOpacity>
         </View>
     );
 };
 
 function TemplateCard({
                           template,
+                          colors
                       }: {
     template: JobTemplate;
+    colors: any;
 }) {
     const cost = calculateJobCost(template);
     const diffColor =
@@ -163,19 +158,19 @@ function TemplateCard({
             </View>
             <View className="flex-row gap-4">
                 <View className="flex-row items-center gap-1">
-                    <Feather name="clock" size={12} color="white"/>
+                    <Feather name="clock" size={12} color={colors.icon}/>
                     <Text className="text-xs text-muted-foreground">
                         {template.timeEstimateHours}h
                     </Text>
                 </View>
                 <View className="flex-row items-center gap-1">
-                    <Feather name="package" size={12} color="white"/>
+                    <Feather name="package" size={12} color={colors.icon}/>
                     <Text className="text-xs text-muted-foreground">
                         {template.materials.length} materials
                     </Text>
                 </View>
                 <View className="flex-row items-center gap-1">
-                    <Feather name="trending-up" size={12} color="white"/>
+                    <Feather name="trending-up" size={12} color={colors.icon}/>
                     <Text className="text-xs text-muted-foreground">
                         {template.commonUpsells.length} upsells
                     </Text>

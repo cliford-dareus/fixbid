@@ -7,8 +7,9 @@ const useThemeColors = () => {
     return {
         icon: isDark ? 'white' : 'black',
         background: isDark ? '#0A0A0A' : '#F4F4F5',
+        primary: isDark ? '#FF2056' : '##f97316',
+        secondary: isDark ? '#262626' : '#18181BB2',
         invert: isDark ? '#000000' : '#ffffff',
-        secondary: isDark ? '#262626' : '#ffffff',
         state: isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
         faded: isDark ? 'rgba(0,0,0,0.9)' : 'rgba(255, 255, 255, 0.9)',
         sheet: isDark ? '#262626' : '#ffffff',

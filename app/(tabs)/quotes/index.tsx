@@ -24,10 +24,10 @@ interface Quote {
     id: string;
     client_name: string;
     total_amount: number;
-    // job_name: string;
+    job_name: string;
     status: string;
     created_at: string;
-    line_items?: Array<{
+    quote_line_items?: Array<{
         id: string;
         description: string;
         photo_url?: string;
@@ -35,7 +35,6 @@ interface Quote {
 }
 
 export default function QuotesList() {
-    const router = useRouter();
     const {user} = useAuth();
     const [quotes, setQuotes] = useState<Quote[]>([]);
     const [loading, setLoading] = useState(true);
@@ -44,9 +43,7 @@ export default function QuotesList() {
     const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
     const [activeStatus, setActiveStatus] = useState<string | null>(null);
 
-    const isIOS = Platform.OS === "ios";
-    const isWeb = Platform.OS === "web";
-    const {isDark, colors} = useThemedNavigation()
+    const {isDark, colors, isWeb, isIOS} = useThemedNavigation()
 
     const fetchQuotes = async () => {
         if (!user) return;
@@ -59,6 +56,7 @@ export default function QuotesList() {
           id,
           client_name,
           total_amount,
+          job_name,
           status,
           created_at,
           quote_line_items (
@@ -67,6 +65,7 @@ export default function QuotesList() {
             photo_url
           )
         `)
+                .eq('handyman_id', user.id)
                 .order('created_at', {ascending: false});
 
             if (error) throw error;
@@ -88,14 +87,6 @@ export default function QuotesList() {
         await fetchQuotes();
         setRefreshing(false);
     }, []);
-
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-        });
-    };
 
     if (loading && quotes.length == 0) {
         return (
@@ -175,52 +166,8 @@ export default function QuotesList() {
                         colors={['#3b82f6']}
                         tintColor="#3b82f6"
                     />
-                } renderItem={({item}) => (
-                <TouchableOpacity
-                    onPress={() => router.push(`/quote/${item.id}`)} // We'll create detail view later
-                    className="bg-white rounded-3xl p-5 mb-4 shadow-sm"
-                >
-                    <View className="flex-row justify-between">
-                        <View className="flex-1">
-                            <Text className="text-xl font-semibold">{item.client_name}</Text>
-                            <Text className="text-gray-500 text-sm mt-1">
-                                {formatDate(item.created_at)}
-                            </Text>
-                        </View>
-                        <View className="items-end">
-                            <Text className="text-3xl font-bold text-green-600">
-                                ${item.total_amount}
-                            </Text>
-                            <View className={`mt-2 px-4 py-1 rounded-full self-end ${
-                                item.status === 'approved' ? 'bg-green-100' : 'bg-amber-100'
-                            }`}>
-                                <Text className={`text-xs font-medium capitalize ${
-                                    item.status === 'approved' ? 'text-green-700' : 'text-amber-700'
-                                }`}>
-                                    {item.status}
-                                </Text>
-                            </View>
-                        </View>
-                    </View>
-
-                    {/* Show first photo thumbnail if available */}
-                    {item.line_items && item.line_items.length > 0 && item.line_items[0].photo_url && (
-                        <Image
-                            source={{uri: item.line_items[0].photo_url}}
-                            className="w-full h-40 rounded-2xl mt-4 object-cover"
-                        />
-                    )}
-
-                    <TouchableOpacity
-                        className="mt-4 bg-gray-100 py-3 rounded-2xl flex-row justify-center items-center gap-2"
-                        onPress={() => {/* Later: regenerate PDF from this quote */
-                        }}
-                    >
-                        <Eye size={18} color="#374151"/>
-                        <Text className="text-gray-700 font-medium">View / Regenerate PDF</Text>
-                    </TouchableOpacity>
-                </TouchableOpacity>
-            )}
+                }
+                renderItem={({item}) => <QuoteCard quote={item} colors={colors}/>}
                 ListEmptyComponent={
                     <View className="items-center justify-center py-20">
                         <Text className="text-gray-400 text-lg">No quotes yet</Text>
@@ -231,4 +178,74 @@ export default function QuotesList() {
             />
         </View>
     );
-}
+};
+
+const QuoteCard = ({quote, colors}: { quote: Quote, colors: any }) => {
+    const router = useRouter();
+    return (
+        <TouchableOpacity
+            onPress={() => router.push(`/quote/${quote.id}`)}
+            className="bg-card rounded-3xl mb-4 gap-2 p-5"
+        >
+            <View className="flex-row justify-between">
+                <View className="flex-1">
+                    <Text className="text-gray-500 text-[11px] font-semibold tracking-wider">
+                        {formatDate(quote.created_at)}
+                    </Text>
+                    <Text className="text-foreground font-bold capitalize">{quote.client_name}</Text>
+                </View>
+                <View className="items-end">
+                    <Text className="text-foreground text-[18px] font-extrabold">
+                        ${quote.total_amount}
+                    </Text>
+                    <View className={`mt-2 px-2 py-[2px] rounded-5 self-end ${
+                        quote.status === 'approved' ? 'bg-green-100' : 'bg-amber-100'
+                    }`}>
+                        <Text className={`font-semibold text-[11px] ${
+                            quote.status === 'approved' ? 'text-green-700' : 'text-amber-700'
+                        }`}>
+                            {quote.status}
+                        </Text>
+                    </View>
+                </View>
+            </View>
+
+            <View className="flex-row gap-4">
+                <View className="flex-row items-center gap-1">
+                    <Feather name="clock" size={12} color={colors.icon}/>
+                    <Text className="text-xs text-muted-foreground">
+                        {quote.job_name}
+                    </Text>
+                </View>
+                <View className="flex-row items-center gap-1">
+                    <Feather name="package" size={12} color={colors.icon}/>
+                    <Text className="text-xs text-muted-foreground">
+                        {quote?.quote_line_items?.length} materials
+                    </Text>
+                </View>
+                {/*<View className="flex-row items-center gap-1">*/}
+                {/*    <Feather name="trending-up" size={12} color="white"/>*/}
+                {/*    <Text className="text-xs text-muted-foreground">*/}
+                {/*        {template.commonUpsells.length} upsells*/}
+                {/*    </Text>*/}
+                {/*</View>*/}
+            </View>
+
+            {/* Show first photo thumbnail if available */}
+            {/*{quote.line_items && quote.line_items.length > 0 && quote.line_items[0].photo_url && (*/}
+            {/*    <Image*/}
+            {/*        source={{uri: quote.line_items[0].photo_url}}*/}
+            {/*        className="w-full h-40 rounded-2xl mt-4 object-cover"*/}
+            {/*    />*/}
+            {/*)}*/}
+        </TouchableOpacity>
+    )
+};
+
+const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+};

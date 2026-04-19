@@ -1,16 +1,15 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, ScrollView, Image, TouchableOpacity, Alert, ActivityIndicator} from 'react-native';
+import {View, Text, ScrollView, TouchableOpacity, Alert, ActivityIndicator} from 'react-native';
 import {useLocalSearchParams, useRouter} from 'expo-router';
-import {ArrowLeft, Download, Edit2} from 'lucide-react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import {supabase} from "@/lib/supabase";
 import {useStripe} from '@stripe/stripe-react-native';
-import {WebView} from 'react-native-webview';
 import {useProfile} from "@/context/profile-context";
 import * as Clipboard from 'expo-clipboard';
 import {Feather} from "@expo/vector-icons";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
+import useThemedNavigation from "@/hooks/use-navigation-theme";
 
 interface LineItem {
     id: string;
@@ -40,7 +39,7 @@ export default function QuoteDetail() {
     const [quote, setQuote] = useState<QuoteDetailType | null>(null);
     const [loading, setLoading] = useState(true);
     const insets = useSafeAreaInsets();
-    const {initPaymentSheet, presentPaymentSheet} = useStripe();
+    const {colors} = useThemedNavigation();
 
     const sendToClient = async () => {
         if (!quote) return;
@@ -59,38 +58,35 @@ export default function QuoteDetail() {
         );
     };
 
-    const showClientPreview = (quoteData: any) => {
-        // In real app, you'd open a modal with WebView or navigate to a client screen
-        Alert.alert(
-            'Client View Preview',
-            'Client sees: Beautiful quote with photos + Approve + Pay Deposit buttons.\n\nNext step: Real public page + Stripe.',
-            [{text: 'Test Deposit Payment', onPress: () => testDepositPayment(quoteData.total_amount * 0.5)}]
-        );
-    };
-
-    const testDepositPayment = async (depositAmount: number) => {
+    const handleAccept = async () => {
         try {
-            // In real flow: Call your backend (Supabase Edge Function) to create PaymentIntent
-            // For demo, we'll simulate
-            const {error} = await initPaymentSheet({
-                merchantDisplayName: 'FixBid Handyman',
-                paymentIntentClientSecret: 'pi_fake_secret_for_demo', // Replace with real from backend
-            });
+            const {data: {user}} = await supabase.auth.getUser();
 
-            if (error) {
-                Alert.alert('Error', error.message);
+            if (!user) {
+                Alert.alert('Not logged in');
                 return;
             }
 
-            const {error: presentError} = await presentPaymentSheet();
-            if (presentError) {
-                Alert.alert('Payment failed', presentError.message);
-            } else {
-                Alert.alert('Success!', `Client paid $${depositAmount} deposit. Status updated to Approved.`);
-                // TODO: Update quote status in Supabase to 'approved'
-            }
-        } catch (e) {
-            Alert.alert('Payment Error', 'Something went wrong');
+            await supabase
+                .from('jobs')
+                .insert({
+                    job_name: quote?.job_name,
+                    client_id: "80fc01b6-3ebe-4e58-9d11-8a211db41b27",
+                    client_name: quote?.client_name,
+                    handyman_id: user?.id,
+                    scheduled_date: null,
+                    completed_date: null,
+                    quote_id: quote?.id,
+                    total_amount: quote?.total_amount,
+                    labor_cost: 0,
+                    material_cost: 0,
+                    before_photos: [],
+                    after_photos: [],
+                    payments: []
+                })
+        }catch (error: any) {
+            console.error(error);
+            Alert.alert('Error', 'Failed to accept quote');
         }
     };
 
@@ -319,39 +315,41 @@ export default function QuoteDetail() {
                         onPress={sendToClient}
                         activeOpacity={0.85}
                     >
-                        <Feather name="send" size={18} color="#fff"/>
+                        <Feather name="send" size={18} color={colors.icon}/>
                         <Text className="text-[16px] font-bold text-white">Send to Client</Text>
                     </TouchableOpacity>
                 )}
 
                 {quote.status === "sent" && (
-                    <View className="mb-2 flex-row gap-2.5">
-                        <TouchableOpacity
-                            className="flex-1 items-center rounded-2xl border-[1.5px] border-destructive p-3.5"
-                            // onPress={handleDecline}
-                            activeOpacity={0.85}
-                        >
-                            <Text className="text-destructive text-[15px] font-bold">
-                                Declined
-                            </Text>
-                        </TouchableOpacity>
+                    // FOR TESTING
+                    <>
+                        <View className="mb-2 flex-row gap-2.5">
+                            <TouchableOpacity
+                                className="bg-chart-3 flex-[2] flex-row items-center justify-center gap-1.5 rounded-2xl p-3.5"
+                                onPress={handleAccept}
+                                activeOpacity={0.85}
+                            >
+                                <Feather name="check" size={18} color={colors.icon}/>
+                                <Text className="text-[15px] font-bold text-white">Accepted → Job</Text>
+                            </TouchableOpacity>
+                        </View>
 
-                        <TouchableOpacity
-                            className="bg-success flex-[2] flex-row items-center justify-center gap-1.5 rounded-2xl p-3.5"
-                            // onPress={handleAccept}
-                            activeOpacity={0.85}
+                        <View
+                            className="bg-success flex-row items-center gap-2.5 rounded-xl border p-3.5"
                         >
-                            <Feather name="check" size={18} color="#fff"/>
-                            <Text className="text-[15px] font-bold text-white">Accepted → Job</Text>
-                        </TouchableOpacity>
-                    </View>
+                            <Feather name="check-circle" size={20} color={colors.icon}/>
+                            <Text className="text-success text-[14px] font-semibold">
+                                Waiting for client
+                            </Text>
+                        </View>
+                    </>
                 )}
 
                 {quote.status === "accepted" && (
                     <View
                         className="bg-success flex-row items-center gap-2.5 rounded-xl border p-3.5"
                     >
-                        <Feather name="check-circle" size={20} color=""/>
+                        <Feather name="check-circle" size={20} color={colors.icon}/>
                         <Text className="text-success text-[14px] font-semibold">
                             Quote accepted — converted to a job
                         </Text>

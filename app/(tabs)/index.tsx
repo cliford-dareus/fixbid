@@ -33,10 +33,10 @@ export default function Dashboard() {
     const router = useRouter();
     const {user} = useAuth();
     const {isDark, isIOS, isWeb} = useThemedNavigation();
-    const {quotes, jobs, getTodayJobs} =useQuote();
+    const {quotes, jobs, getTodayJobs, getMonthRevenue } = useQuote();
 
     const todaysJobs = getTodayJobs();
-    // const monthRevenue =
+    const monthRevenue = getMonthRevenue();
     const openJobs = jobs.filter(job => job.status !== "paid" && job.status !== "completed");
     const pendingQuotes = quotes.filter(quote => quote.status === "sent");
 
@@ -44,6 +44,7 @@ export default function Dashboard() {
         <View className="flex-1 bg-background">
             <View className="absolute top-14 border h-[60px] w-full flex-row justify-between items-center px-6">
                 <TouchableOpacity
+                    onPress={() => router.push("/(tabs)/profile")}
                     className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
                     <Feather name="user" size={24} color="white"/>
                 </TouchableOpacity>
@@ -93,7 +94,7 @@ export default function Dashboard() {
                 <View className="flex-row gap-2.5 px-5 mb-6">
                     <MetricCard
                         label="Month Revenue"
-                        value={`$${2000}`}
+                        value={`$${monthRevenue.toLocaleString() || '0'}`}
                         icon="dollar-sign"
                         accent="green"
                     />
