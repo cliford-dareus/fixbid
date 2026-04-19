@@ -51,7 +51,7 @@ export interface Payment {
     notes: string;
 }
 
-interface Job {
+export interface Job {
     id: string;
     jobName: string;
     quoteId: string;

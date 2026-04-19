@@ -2,7 +2,7 @@ import {router, Tabs} from 'expo-router';
 import {
     Activity,
     ArrowUpRight,
-    BarChart3,
+    BarChart3, Briefcase,
     FileText,
     Home,
     List,
@@ -104,6 +104,14 @@ export default function ClassicTabLayout() {
                     }}
                 />
                 <Tabs.Screen
+                    name="jobs"
+                    options={{
+                        title: 'Jobs',
+                        headerShown: false,
+                        tabBarIcon: ({ color }) => <Toolbox size={24} color={color} />,
+                    }}
+                />
+                <Tabs.Screen
                     name="profile"
                     options={{
                         headerShown: false,
@@ -111,14 +119,6 @@ export default function ClassicTabLayout() {
                         tabBarIcon: ({color}) => <User size={24} color={color}/>
                     }}
                 />
-
-                {/*<Tabs.Screen*/}
-                {/*    name="jobs"*/}
-                {/*    options={{*/}
-                {/*        title: 'Jobs',*/}
-                {/*        tabBarIcon: ({ color }) => <Toolbox size={24} color={color} />,*/}
-                {/*    }}*/}
-                {/*/>*/}
             </Tabs>
         </>
     );
@@ -274,9 +274,9 @@ function MenuItem({icon, label, showArrow, onPress, onClose}: {
 function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
     return (
         <>
-            <View className="absolute bottom-10 w-full flex-row items-center justify-center px-5">
+            <View className="absolute bottom-10 w-full flex-row items-center justify-center px-2">
                 {/* The Pill-Shaped Container */}
-                <View className="flex-1 flex-row flex-shrink bg-secondary-foreground border border-zinc-800 rounded-full h-16 items-center justify-around px-2 shadow-lg">
+                <View className="flex-1 flex-row flex-shrink bg-secondary-foreground border border-zinc-800 rounded-full h-16 items-center justify-between px-2 shadow-lg">
                     {state.routes.filter((route: any) => route.name !== "profile").map((route: any, index: number) => {
                         const isFocused = state.index === index;
 
@@ -297,6 +297,7 @@ function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
                             quotes: (props: any) => <Trophy {...props} />,
                             templates: (props: any) => <MessageCircle {...props} />,
                             clients: (props: any) => <BarChart3 {...props} />,
+                            jobs: (props: any) => <Briefcase {...props} />
                         };
 
                         const Icon = icons[route.name];
@@ -318,6 +319,7 @@ function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
                                         style={{
                                             position: 'absolute',
                                             inset: 0,
+                                            // width: '100%',
                                             borderRadius: 24,
                                             zIndex: -1,
                                             isolation: 'isolate',

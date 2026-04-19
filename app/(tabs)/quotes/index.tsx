@@ -42,7 +42,6 @@ export default function QuotesList() {
     const insets = useSafeAreaInsets();
     const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
     const [activeStatus, setActiveStatus] = useState<string | null>(null);
-
     const {isDark, colors, isWeb, isIOS} = useThemedNavigation()
 
     const fetchQuotes = async () => {

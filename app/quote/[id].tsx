@@ -44,7 +44,7 @@ export default function QuoteDetail() {
     const sendToClient = async () => {
         if (!quote) return;
 
-        const publicLink = `${process.env.EXPO_PUBLIC_SITE_URL}/quotes/client-view/${quote.id}`;
+        const publicLink = `https://fixbid-ten.vercel.app/?id=${quote.id}`;
 
         await Clipboard.setStringAsync(publicLink);
 
