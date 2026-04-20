@@ -221,7 +221,7 @@
         try {
             const res = await fetch('https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1/create-checkout-session', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     quote_id: quoteId,
                     deposit_amount: depositAmount,
