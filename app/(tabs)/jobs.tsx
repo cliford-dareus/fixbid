@@ -30,7 +30,7 @@ export default function JobsScreen() {
 
     const FILTERS: { key: Filter; label: string }[] = [
         {key: "all", label: "All"},
-        {key: "scheduled", label: "Scheduled"},
+        {key: "schedule", label: "Scheduled"},
         {key: "in-progress", label: "Active"},
         {key: "completed", label: "Done"},
         {key: "paid", label: "Paid"},
