@@ -31,7 +31,7 @@
                     <i class="fa-solid fa-hammer hammer-icon"></i>
                 </div>
                 <div>
-                    <h1 id="contractor-name" class="text-3xl font-bold text-slate-900">Handyman</h1>
+                    <h1 id="contractor-name" class="text-3xl font-bold text-slate-900"></h1>
                     <div class="mt-2 flex flex-wrap gap-x-6 text-sm text-slate-600">
                         <span id="contractor-phone" class="flex items-center gap-1.5"></span>
                         <span id="contractor-email" class="flex items-center gap-1.5"></span>
@@ -158,7 +158,7 @@
             const h = data.handyman;
 
             // Fill in data
-            document.getElementById('contractor-name').textContent = h.full_name || h.business || 'Handyman';
+            document.getElementById('contractor-name').innerHTML = h.full_name || h.business_name || 'Handyman';
             document.getElementById('contractor-phone').innerHTML = h.phone ? `<i class="fa-solid fa-phone"></i> ${h.phone}` : '<i class="fa-solid fa-phone"></i> 786-555-5555';
             document.getElementById('contractor-email').innerHTML = h.email ? `<i class="fa-solid fa-envelope"></i> ${h.email}` : '<i class="fa-solid fa-envelope"></i> Johnthehandyman@gmail.com';
             document.getElementById('quote-id').textContent = q.id.slice(0, 8);

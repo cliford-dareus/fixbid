@@ -36,7 +36,7 @@ export function usePaymentNotifications() {
                                 body: `Client paid $${amount} deposit!`,
                                 data: {quoteId, type: 'payment'},
                             },
-                            trigger: null, // show immediately
+                            trigger: null,
                         });
                     }
                 }

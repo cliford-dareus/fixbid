@@ -46,7 +46,7 @@ export interface Quote {
 
 export interface Payment {
     amount: number;
-    method: "cash" | "credit_card" | "paypal";
+    method: "cash" | "card" | "paypal";
     date: string;
     notes: string;
 }
@@ -57,7 +57,7 @@ export interface Job {
     quoteId: string;
     clientId: string;
     clientName: string;
-    status: "schedule" | "in-progress" | "completed" | "invoiced" | "paid";
+    status: "scheduled" | "in-progress" | "completed" | "invoiced" | "paid";
     handymanId: string;
     scheduleDate: string;
     completedDate?: string;
