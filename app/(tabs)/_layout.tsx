@@ -111,6 +111,7 @@ export default function ClassicTabLayout() {
                         tabBarIcon: ({ color }) => <Toolbox size={24} color={color} />,
                     }}
                 />
+
                 <Tabs.Screen
                     name="profile"
                     options={{
@@ -274,7 +275,7 @@ function MenuItem({icon, label, showArrow, onPress, onClose}: {
 function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
     return (
         <>
-            <View className="absolute bottom-10 w-full flex-row items-center justify-center px-2">
+            <View className="absolute bottom-10 w-full flex-row items-center justify-center px-4">
                 {/* The Pill-Shaped Container */}
                 <View className="flex-1 flex-row flex-shrink bg-secondary-foreground border border-zinc-800 rounded-full h-16 items-center justify-between px-2 shadow-lg">
                     {state.routes.filter((route: any) => route.name !== "profile").map((route: any, index: number) => {
