@@ -32,7 +32,7 @@ export default function ClientDetailScreen() {
     const [address, setAddress] = useState(client?.address ?? "");
     const [notes, setNotes] = useState(client?.notes ?? "");
 
-    const clientQuotes = quotes.filter((q) => q.clientId === id);
+    const clientQuotes = quotes.filter((q) => q.client_id === id);
 
     const handleSave = async () => {
         if (!name.trim()) {
@@ -322,7 +322,7 @@ export default function ClientDetailScreen() {
                                 <View className="items-end gap-1">
                                     {/*<StatusBadge status={j.status} />*/}
                                     <Text className="text-foreground text-[14px] font-bold">
-                                        ${j.totalAmount.toLocaleString()}
+                                        ${j.total_amount.toLocaleString()}
                                     </Text>
                                 </View>
                             </TouchableOpacity>

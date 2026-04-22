@@ -60,6 +60,8 @@ export default function RootLayout() {
 
                                         <Stack.Screen name="quotes/new" options={{headerShown: false, presentation: 'modal'}}/>
                                         <Stack.Screen name="quotes/[id]" options={{headerShown: false}}/>
+                                        <Stack.Screen name="settings" options={{headerShown: false, presentation: 'modal'}}/>
+                                        {/*<Stack.Screen name="settings/profile" options={{headerShown: false, presentation: 'modal', animation: 'slide_from_right'}}/>*/}
                                     </Stack>
                                 </ThemeProvider>
                             </QuoteProvider>

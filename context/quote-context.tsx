@@ -32,43 +32,42 @@ interface Line {
 
 export interface Quote {
     id: string;
-    clientId: string;
-    clientName: string;
-    templateId?: string;
-    jobName: string;
-    lineItems: LineItem[];
+    client_id: string;
+    client_name: string;
+    template_id?: string;
+    job_name: string;
+    quote_line_items: LineItem[];
     notes: string;
-    total: number;
+    total_amount: number;
     status: "draft" | "sent" | "accepted" | "declined";
-    createdAt: string;
+    created_at: string;
     photos: string[];
 }
 
 export interface Payment {
     amount: number;
-    method: "cash" | "card" | "paypal";
+    method: "cash" | "card" | "paypal" | "venmo" | "other";
     date: string;
-    notes: string;
 }
 
 export interface Job {
     id: string;
-    jobName: string;
-    quoteId: string;
-    clientId: string;
-    clientName: string;
-    status: "scheduled" | "in-progress" | "completed" | "invoiced" | "paid";
-    handymanId: string;
-    scheduleDate: string;
-    completedDate?: string;
-    totalAmount: number;
-    laborCost: number;
-    materialsCost: number;
+    quote_id: string;
+    client_id: string;
+    client_name: string;
+    total_amount: number;
+    job_name: string;
+    schedule_date: string;
+    completed_date?: string;
+    labor_cost: number;
+    materials_cost: number;
+    handyman_id: string;
+    before_photos: string[];
+    after_photos: string[];
     notes: string;
-    beforePhotos: string[];
-    afterPhotos: string[];
-    payments: Payment[]
-    createdAt: string;
+    payments: Payment[];
+    status: "schedule" | "in-progress" | "completed" | "invoiced" | "paid";
+    created_at: string;
 }
 
 type QuoteContextType = {
@@ -99,65 +98,93 @@ type QuoteContextType = {
     updateJob: (id: string | undefined, updates: Partial<Job>) => void;
     getTodayJobs: () => Job[];
     getMonthRevenue: (month?: number, year?: number) => number;
+
+    fetchClients: () => Promise<void>;
+    fetchQuotes: () => Promise<void>;
+    fetchJobs: () => Promise<void>;
+
+    loading: boolean;
+    setLoading: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
 const QuoteContext = createContext<QuoteContextType | undefined>(undefined);
 
 export function QuoteProvider({children}: { children: ReactNode }) {
     const {user} = useAuth();
-    const [clients, setClients] = useState<Client[]>([]);
-    const [newQuote, setNewQuote] = useState<Quote | null>(null)
-    const [quotes, setQuotes] = useState<Quote[]>([]);
-    const [jobs, setJobs] = useState<any[]>([]);
+    const [newQuote, setNewQuote] = useState<Quote | null>(null);
     const [lineItems, setLineItems] = useState<Line[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [clients, setClients] = useState<Client[]>([]);
+    const [quotes, setQuotes] = useState<Quote[]>([]);
+    const [jobs, setJobs] = useState<Job[]>([]);
 
-    console.log("LINE ITEMS", lineItems);
+    const fetchClients = async () => {
+        setLoading(true);
+        try {
+            const {data, error} = await supabase
+                .from('clients')
+                .select()
+                .eq("handyman_id", user?.id)
+
+            if (error) throw error;
+            setClients(data || []);
+        } catch (error: any) {
+            console.error(error);
+            Alert.alert('Error', 'Failed to load clients. Please try again later.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchJobs = async () => {
+        setLoading(true);
+        try {
+            const {data, error} = await supabase
+                .from('jobs')
+                .select()
+                .eq("handyman_id", user?.id)
+            if (error) throw error;
+            setJobs(data || []);
+        } catch (error: any) {
+            console.error(error);
+            Alert.alert('Error', 'Failed to load jobs. Please try again later.');
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    const fetchQuotes = async () => {
+        setLoading(true);
+        try {
+            const {data, error} = await supabase
+                .from('quotes')
+                .select(
+                    `
+          id,
+          client_name,
+          total_amount,
+          job_name,
+          status,
+          created_at,
+          quote_line_items (
+            id,
+            description,
+            photo_url
+          )
+        `)
+                .eq("handyman_id", user?.id)
+                .order('created_at', {ascending: false})
+            if (error) throw error;
+            setQuotes(data as unknown as Quote[] || [])
+        } catch (error) {
+            console.error(error);
+            Alert.alert('Error', 'Failed to load quotes. Please try again later.');
+        } finally {
+            setLoading(false);
+        }
+    }
 
     useEffect(() => {
-        const fetchClients = async () => {
-            try {
-                const {data, error} = await supabase
-                    .from('clients')
-                    .select()
-                    .eq("handyman_id", user?.id)
-
-                if (error) throw error;
-                setClients(data || []);
-            } catch (error: any) {
-                console.error(error);
-                Alert.alert('Error', 'Failed to load clients. Please try again later.');
-            }
-        };
-
-        const fetchJobs = async () => {
-            try {
-                const {data, error} = await supabase
-                    .from('jobs')
-                    .select()
-                    .eq("handyman_id", user?.id)
-                if (error) throw error;
-                setJobs(data || []);
-            } catch (error: any) {
-                console.error(error);
-                Alert.alert('Error', 'Failed to load jobs. Please try again later.');
-            }
-        }
-
-        const fetchQuotes = async () => {
-            try {
-                const {data, error} = await supabase
-                    .from('quotes')
-                    .select()
-                    .eq("handyman_id", user?.id)
-
-                if (error) throw error;
-                setQuotes(data || [])
-            } catch (error) {
-                console.error(error);
-                Alert.alert('Error', 'Failed to load quotes. Please try again later.');
-            }
-        }
-
         if (!user?.id) return;
         fetchClients();
         fetchJobs();
@@ -166,12 +193,12 @@ export function QuoteProvider({children}: { children: ReactNode }) {
 
     // QUOTES
     const addQuote = useCallback(
-        (q: Omit<Quote, "id" | "createdAt">): Quote => {
-            const newQuote: Quote = {...q, id: "", createdAt: new Date().toISOString()};
+        (q: Omit<Quote, "id" | "created_at">): Quote => {
+            const newQuote: Quote = {...q, id: "", created_at: new Date().toISOString()};
             setQuotes((prev) => {
                 return [newQuote, ...prev];
             });
-            setLineItems(q.lineItems)
+            setLineItems(q.quote_line_items)
             return newQuote;
         },
         []
@@ -210,8 +237,8 @@ export function QuoteProvider({children}: { children: ReactNode }) {
     );
 
     const addNewQuote = useCallback(
-        (q: Omit<Quote, "id" | "createdAt">) => {
-            const newQuote: Quote = {...q, id: "", createdAt: new Date().toISOString()};
+        (q: Omit<Quote, "id" | "created_at">) => {
+            const newQuote: Quote = {...q, id: "", created_at: new Date().toISOString()};
             setNewQuote(newQuote);
             return newQuote;
         },
@@ -232,6 +259,10 @@ export function QuoteProvider({children}: { children: ReactNode }) {
         setLineItems([])
         setNewQuote(null)
     };
+
+    const getRecentQuotes = useCallback(() => {
+
+    }, []);
 
     //  LINE ITEMS
     const updateLineItem = (idx: number, field: keyof LineItem, value: string | number) => {
@@ -261,7 +292,7 @@ export function QuoteProvider({children}: { children: ReactNode }) {
         const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
 
         return jobs.filter(job => {
-            const jobDate = new Date(job.scheduleDate);
+            const jobDate = new Date(job.schedule_date);
             return jobDate >= startOfDay && jobDate <= endOfDay;
         });
     }
@@ -280,7 +311,7 @@ export function QuoteProvider({children}: { children: ReactNode }) {
     const getMonthRevenue = useCallback((month?: number, year?: number) => {
         const now = new Date();
         return jobs.filter((job: Job) => {
-            const d = new Date(job.createdAt);
+            const d = new Date(job.created_at);
             return d.getMonth() === (month || now.getMonth()) && d.getFullYear() === (year || now.getFullYear());
         })
             .reduce((acc, job: Job) => {
@@ -314,6 +345,13 @@ export function QuoteProvider({children}: { children: ReactNode }) {
             updateJob,
             getTodayJobs,
             getMonthRevenue,
+
+            fetchClients,
+            fetchQuotes,
+            fetchJobs,
+
+            loading,
+            setLoading,
         }}>
             {children}
         </QuoteContext.Provider>

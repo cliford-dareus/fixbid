@@ -11,75 +11,21 @@ import {
     RefreshControl
 } from 'react-native';
 import {useRouter} from 'expo-router';
-import {Eye} from 'lucide-react-native';
-import {supabase} from "@/lib/supabase";
 import {useAuth} from "@/context/auth-context";
 import {Feather} from "@expo/vector-icons";
 import {BlurView} from "expo-blur";
 import useThemedNavigation from "@/hooks/use-navigation-theme";
 import {cn} from "@/lib/utils";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
-
-interface Quote {
-    id: string;
-    client_name: string;
-    total_amount: number;
-    job_name: string;
-    status: string;
-    created_at: string;
-    quote_line_items?: Array<{
-        id: string;
-        description: string;
-        photo_url?: string;
-    }>;
-}
+import {Quote, useQuote} from "@/context/quote-context";
 
 export default function QuotesList() {
-    const {user} = useAuth();
-    const [quotes, setQuotes] = useState<Quote[]>([]);
-    const [loading, setLoading] = useState(true);
+    const {quotes, fetchQuotes, loading} = useQuote();
     const [refreshing, setRefreshing] = useState(false);
     const insets = useSafeAreaInsets();
     const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
     const [activeStatus, setActiveStatus] = useState<string | null>(null);
     const {isDark, colors, isWeb, isIOS} = useThemedNavigation()
-
-    const fetchQuotes = async () => {
-        if (!user) return;
-
-        setLoading(true);
-        try {
-            const {data, error} = await supabase
-                .from('quotes')
-                .select(`
-          id,
-          client_name,
-          total_amount,
-          job_name,
-          status,
-          created_at,
-          quote_line_items (
-            id,
-            description,
-            photo_url
-          )
-        `)
-                .eq('handyman_id', user.id)
-                .order('created_at', {ascending: false});
-
-            if (error) throw error;
-            setQuotes(data || []);
-        } catch (error: any) {
-            console.error(error);
-            Alert.alert('Error', 'Failed to load quote');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchQuotes();
-    }, [user]);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -195,13 +141,13 @@ const QuoteCard = ({quote, colors}: { quote: Quote, colors: any }) => {
                 </View>
                 <View className="items-end">
                     <Text className="text-foreground text-[18px] font-extrabold">
-                        ${quote.total_amount}
+                        ${quote?.total_amount}
                     </Text>
                     <View className={`mt-2 px-2 py-[2px] rounded-5 self-end ${
-                        quote.status === 'approved' ? 'bg-green-100' : 'bg-amber-100'
+                        quote.status === 'accepted' ? 'bg-green-100' : 'bg-amber-100'
                     }`}>
                         <Text className={`font-semibold text-[11px] ${
-                            quote.status === 'approved' ? 'text-green-700' : 'text-amber-700'
+                            quote.status === 'accepted' ? 'text-green-700' : 'text-amber-700'
                         }`}>
                             {quote.status}
                         </Text>

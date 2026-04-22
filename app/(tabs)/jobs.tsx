@@ -1,32 +1,34 @@
 import {Feather} from "@expo/vector-icons";
 import {router} from "expo-router";
-import React, {useState} from "react";
+import React, {useCallback, useState} from "react";
 import {
+    ActivityIndicator,
+    Alert,
     FlatList,
-    Platform,
+    Platform, RefreshControl,
     Text,
     TouchableOpacity,
     View,
 } from "react-native";
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 import useThemedNavigation from "@/hooks/use-navigation-theme";
-import {Job, useQuote} from "@/context/quote-context";
 import {EmptyState} from "@/components/empty-state";
 import useThemeColors from "@/hooks/use-theme-color";
 import {BlurView} from "expo-blur";
 import {cn} from "@/lib/utils";
+import {Job, useQuote} from "@/context/quote-context";
 
-type Filter = "all" | "scheduled" | "in-progress" | "completed" | "paid";
+
+
+type Filter = "all" | "schedule" | "in-progress" | "completed" | "paid";
 
 export default function JobsScreen() {
     const {isDark, isIOS, isWeb, colors} = useThemedNavigation();
     const insets = useSafeAreaInsets();
-    const {jobs} = useQuote();
+    const {jobs, fetchJobs, loading} = useQuote()
+    const [refreshing, setRefreshing] = useState(false);
     const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
     const [activeStatus, setActiveStatus] = useState<string | null>(null);
-
-    const filtered =
-        activeStatus === "all" ? jobs : jobs.filter((j) => j.status === activeStatus);
 
     const FILTERS: { key: Filter; label: string }[] = [
         {key: "all", label: "All"},
@@ -35,6 +37,23 @@ export default function JobsScreen() {
         {key: "completed", label: "Done"},
         {key: "paid", label: "Paid"},
     ];
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await fetchJobs();
+        setRefreshing(false);
+    }, []);
+
+    if (loading && jobs.length == 0) {
+        return (
+            <View className="flex-1 justify-center items-center bg-gray-50">
+                <ActivityIndicator size="large" color="#3b82f6"/>
+            </View>
+        );
+    }
+
+    const filtered =
+        activeStatus === null ? jobs : jobs.filter((j) => j.status === activeStatus?.toLowerCase());
 
     return (
         <View className="flex-1 bg-background pt-[40px]">
@@ -71,19 +90,19 @@ export default function JobsScreen() {
                 <FlatList
                     horizontal
                     data={FILTERS}
-                    keyExtractor={(item) => item.key}
+                    keyExtractor={(item) => item.label}
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{
                         gap: 8, marginTop: 4,
                     }}
                     renderItem={({item}) => {
-                        const isActive = item.label === "All" ? !activeStatus : activeStatus === item.label;
+                        const isActive = item.key === "all" ? !activeStatus : activeStatus === item.key;
                         return (
                             <TouchableOpacity
                                 className={cn("gap-2 mt-2 border border-zinc-300 px-4 py-2 rounded-3xl",
                                     isActive ? "bg-primary border-primary" : "bg-card"
                                 )}
-                                onPress={() => setActiveStatus(item.label === "All" ? null : item.label)}
+                                onPress={() => setActiveStatus(item.key === "all" ? null : item.key)}
                                 activeOpacity={0.8}
                             >
                                 <Text
@@ -110,6 +129,14 @@ export default function JobsScreen() {
                     data={filtered}
                     keyExtractor={(j) => j.id}
                     contentContainerClassName="px-4 pb-24"
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            colors={['#3b82f6']}
+                            tintColor="#3b82f6"
+                        />
+                    }
                     renderItem={({item}) => <JobCard job={item} colors={colors}/>}
                     ListEmptyComponent={
                         <View className="items-center pt-10">
@@ -126,23 +153,23 @@ export default function JobsScreen() {
 
 function JobCard({job, colors}: { job: Job; colors: ReturnType<typeof useThemeColors> }) {
     const totalPaid = job.payments.reduce((s, p) => s + p.amount, 0);
-    const balance = job.totalAmount - totalPaid;
-    const hasPhotos = job.beforePhotos.length > 0 || job.afterPhotos.length > 0;
+    const balance = job.total_amount - totalPaid;
+    const hasPhotos = job.before_photos?.length > 0 || job.after_photos?.length > 0;
 
     return (
         <TouchableOpacity
             className="mb-2.5 rounded-xl p-3.5"
             style={{backgroundColor: colors.background}}
-            // onPress={() => router.push(`/job/${job.id}`)}
+            onPress={() => router.push(`/job/${job.id}`)}
             activeOpacity={0.8}
         >
             <View className="flex-row items-start justify-between">
                 <View className="flex-1 gap-0.5 pr-2">
                     <Text className="text-muted-foreground text-[16px] font-bold" numberOfLines={1}>
-                        {job.jobName}
+                        {job.job_name}
                     </Text>
                     <Text className="text-muted-foreground text-[13px]">
-                        {job.clientName}
+                        {job.client_name}
                     </Text>
                 </View>
                 {/*<StatusBadge status={job.status} />*/}
@@ -151,14 +178,14 @@ function JobCard({job, colors}: { job: Job; colors: ReturnType<typeof useThemeCo
             <View className="gap-1.5">
                 <View className="flex-row items-center gap-2.5">
                     <Text className="text-muted-foreground text-[18px] font-black tracking-[-0.3px]">
-                        ${job.totalAmount.toLocaleString()}
+                        ${job.total_amount}
                     </Text>
                     {balance > 0 && (
                         <Text className="text-destructive text-[13px] font-semibold">
-                            ${balance.toLocaleString()} due
+                            ${balance} due
                         </Text>
                     )}
-                    {balance <= 0 && job.totalAmount > 0 && (
+                    {balance <= 0 && job.total_amount > 0 && (
                         <Text className="text-chart-4 text-[13px] font-semibold">
                             Paid in full
                         </Text>
@@ -166,11 +193,11 @@ function JobCard({job, colors}: { job: Job; colors: ReturnType<typeof useThemeCo
                 </View>
 
                 <View className="flex-row gap-3.5">
-                    {job.scheduleDate ? (
+                    {job.schedule_date ? (
                         <View className="flex-row items-center gap-1">
                             <Feather name="calendar" size={12} color={colors.icon}/>
                             <Text className="text-[12px] text-muted-foreground">
-                                {formatDate(job.scheduleDate)}
+                                {formatDate(job.schedule_date)}
                             </Text>
                         </View>
                     ) : null}
@@ -178,7 +205,7 @@ function JobCard({job, colors}: { job: Job; colors: ReturnType<typeof useThemeCo
                         <View className="flex-row items-center gap-1">
                             <Feather name="camera" size={12} color={colors.icon}/>
                             <Text className="text-[12px] text-muted-foreground">
-                                {job.beforePhotos.length + job.afterPhotos.length} photos
+                                {job.before_photos.length + job.after_photos.length} photos
                             </Text>
                         </View>
                     )}

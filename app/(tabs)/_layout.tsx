@@ -108,16 +108,7 @@ export default function ClassicTabLayout() {
                     options={{
                         title: 'Jobs',
                         headerShown: false,
-                        tabBarIcon: ({ color }) => <Toolbox size={24} color={color} />,
-                    }}
-                />
-
-                <Tabs.Screen
-                    name="profile"
-                    options={{
-                        headerShown: false,
-                        title: 'Profile',
-                        tabBarIcon: ({color}) => <User size={24} color={color}/>
+                        tabBarIcon: ({color}) => <Toolbox size={24} color={color}/>,
                     }}
                 />
             </Tabs>
@@ -133,7 +124,7 @@ function ActionMenu({menuVisible, onClose}: { menuVisible: boolean, onClose: () 
     const MODAL_HEIGHT = 230;
 
     const progress = useDerivedValue(() => {
-        return withTiming(menuVisible ? 1 : 0, {duration: 100})
+        return withTiming(menuVisible ? 1 : 0, {duration: 50})
     });
 
     const animatedContainerStyle = useAnimatedStyle(() => {
@@ -163,12 +154,12 @@ function ActionMenu({menuVisible, onClose}: { menuVisible: boolean, onClose: () 
     const customExiting = (values: any) => {
         'worklet';
         const animations = {
-            originY: withTiming(0, {duration: 1700}),
-            opacity: withTiming(0, {duration: 1700}),
-            width: withTiming(64, {duration: 1700}),
-            height: withTiming(64, {duration: 1700}),
+            originY: withTiming(0, {duration: 500}),
+            opacity: withTiming(0, {duration: 700}),
+            width: withTiming(64, {duration: 700}),
+            height: withTiming(64, {duration: 700}),
             transform: [
-                {scale: withTiming(0.5, {duration: 1700})},
+                {scale: withTiming(0.5, {duration: 700})},
             ],
         }
 
@@ -190,7 +181,7 @@ function ActionMenu({menuVisible, onClose}: { menuVisible: boolean, onClose: () 
     return (
         <Animated.View
             style={[{
-                position: menuVisible ?'absolute' : 'static',
+                position: menuVisible ? 'absolute' : 'static',
                 overflow: 'hidden',
                 justifyContent: 'center',
                 alignItems: 'center',
@@ -213,7 +204,7 @@ function ActionMenu({menuVisible, onClose}: { menuVisible: boolean, onClose: () 
 
             {menuVisible && <Animated.View
                 className="w-full h-full"
-                entering={FadeIn.delay(500)}
+                entering={FadeIn.delay(200)}
             >
                 <GlassView
                     style={{
@@ -277,7 +268,8 @@ function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
         <>
             <View className="absolute bottom-10 w-full flex-row items-center justify-center px-4">
                 {/* The Pill-Shaped Container */}
-                <View className="flex-1 flex-row flex-shrink bg-secondary-foreground border border-zinc-800 rounded-full h-16 items-center justify-between px-2 shadow-lg">
+                <View
+                    className="flex-1 flex-row flex-shrink bg-secondary-foreground border border-zinc-800 rounded-full h-16 items-center justify-between px-2 shadow-lg">
                     {state.routes.filter((route: any) => route.name !== "profile").map((route: any, index: number) => {
                         const isFocused = state.index === index;
 

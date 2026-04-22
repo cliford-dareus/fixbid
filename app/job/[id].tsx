@@ -17,8 +17,9 @@ import {useSafeAreaInsets} from "react-native-safe-area-context";
 import {useQuote} from "@/context/quote-context";
 import useThemedNavigation from "@/hooks/use-navigation-theme";
 import useThemeColors from "@/hooks/use-theme-color";
+import {cn} from "@/lib/utils";
 
-const STATUS_ORDER = ["scheduled", "in-progress", "completed", "invoiced", "paid"] as const;
+const STATUS_ORDER = ["schedule", "in-progress", "completed", "invoiced", "paid"] as const;
 
 export default function JobDetailScreen() {
     const {id} = useLocalSearchParams<{ id: string }>();
@@ -41,7 +42,7 @@ export default function JobDetailScreen() {
     }
 
     const totalPaid = job.payments.reduce((s, p) => s + p.amount, 0);
-    const balance = job.totalAmount - totalPaid;
+    const balance = job.total_amount - totalPaid;
     const currentStatusIdx = STATUS_ORDER.indexOf(job.status as typeof STATUS_ORDER[number]);
 
     const advanceStatus = () => {
@@ -61,9 +62,9 @@ export default function JobDetailScreen() {
             if (!result.canceled) {
                 const uri = result.assets[0].uri;
                 if (type === "before") {
-                    updateJob(job.id, {beforePhotos: [...job.beforePhotos, uri]});
+                    updateJob(job.id, {before_photos: [...job.before_photos, uri]});
                 } else {
-                    updateJob(job.id, {afterPhotos: [...job.afterPhotos, uri]});
+                    updateJob(job.id, {after_photos: [...job.after_photos, uri]});
                 }
             }
         }
@@ -94,7 +95,7 @@ export default function JobDetailScreen() {
     const nextStatus = currentStatusIdx < STATUS_ORDER.length - 1 ? STATUS_ORDER[currentStatusIdx + 1] : null;
 
     return (
-        <View className="flex-1" style={{backgroundColor: colors.background}}>
+        <View className="flex-1 bg-background">
             <View
                 className="flex-row items-center gap-3 px-4 pb-3"
                 style={{paddingTop: insets.top + 12}}
@@ -103,7 +104,7 @@ export default function JobDetailScreen() {
                     <Feather name="arrow-left" size={22} color={colors.icon}/>
                 </TouchableOpacity>
                 <Text className="flex-1 text-[17px] font-bold text-foreground" numberOfLines={1}>
-                    {job.jobName}
+                    {job.job_name}
                 </Text>
                 {/*<StatusBadge status={job.status} />*/}
             </View>
@@ -115,7 +116,7 @@ export default function JobDetailScreen() {
                         <View>
                             <Text className="text-[12px] font-semibold uppercase text-slate-400">Total</Text>
                             <Text className="text-[34px] font-black tracking-[-0.5px] text-white">
-                                ${job.totalAmount.toLocaleString()}
+                                ${job.total_amount.toLocaleString()}
                             </Text>
                         </View>
                         <View className="items-end">
@@ -126,16 +127,16 @@ export default function JobDetailScreen() {
                             </Text>
                         </View>
                     </View>
-                    {job.clientName ? (
+                    {job.client_name ? (
                         <View className="flex-row items-center gap-1.5">
                             <Feather name="user" size={14} color="#94A3B8"/>
-                            <Text className="text-[14px] text-slate-400">{job.clientName}</Text>
+                            <Text className="text-[14px] text-slate-400">{job.client_name}</Text>
                         </View>
                     ) : null}
-                    {job.scheduleDate ? (
+                    {job.schedule_date ? (
                         <View className="flex-row items-center gap-1.5">
                             <Feather name="calendar" size={14} color="#94A3B8"/>
-                            <Text className="text-[14px] text-slate-400">{formatDate(job.scheduleDate)}</Text>
+                            <Text className="text-[14px] text-slate-400">{formatDate(job.schedule_date)}</Text>
                         </View>
                     ) : null}
                 </View>
@@ -149,11 +150,11 @@ export default function JobDetailScreen() {
                         {STATUS_ORDER.map((s, i) => (
                             <View key={s} className="flex-1 items-center gap-1">
                                 <View
-                                    className="h-5.5 w-5.5 items-center justify-center rounded-xl"
-                                    style={{backgroundColor: i <= currentStatusIdx ? colors.primary : colors.secondary}}
-                                >
+                                    className={cn("h-6 w-6 items-center justify-center rounded-xl",
+                                        i <= currentStatusIdx ? "bg-primary" : "bg-secondary"
+                                    )}>
                                     {i <= currentStatusIdx && (
-                                        <Feather name="check" size={10} color="#fff"/>
+                                        <Feather name="check" size={10} color={colors.icon}/>
                                     )}
                                 </View>
                                 <Text className="text-[9px] font-semibold text-center leading-3"
@@ -165,15 +166,14 @@ export default function JobDetailScreen() {
                     </View>
                     {nextStatus && (
                         <TouchableOpacity
-                            className="flex-row items-center justify-center gap-2 rounded-xl p-3"
-                            style={{backgroundColor: colors.primary}}
+                            className="bg-primary flex-row items-center justify-center gap-2 rounded-xl p-3"
                             onPress={advanceStatus}
                             activeOpacity={0.85}
                         >
                             <Text className="text-[14px] font-bold text-white">
                                 Mark as {nextStatus.replace("-", " ")}
                             </Text>
-                            <Feather name="arrow-right" size={16} color="#fff"/>
+                            <Feather name="arrow-right" size={16} color={colors.icon}/>
                         </TouchableOpacity>
                     )}
                 </View>
@@ -208,9 +208,9 @@ export default function JobDetailScreen() {
                                     <Text className="text-[16px] font-bold text-chart-4">
                                         +${p.amount.toLocaleString()}
                                     </Text>
-                                    <Text className="text-[12px] text-foreground">
-                                        {p.notes}
-                                    </Text>
+                                    {/*<Text className="text-[12px] text-foreground">*/}
+                                    {/*    {p.notes}*/}
+                                    {/*</Text>*/}
                                 </View>
                                 <Text className="text-[12px] text-muted-foreground">
                                     {formatDate(p.date)}
@@ -236,13 +236,13 @@ export default function JobDetailScreen() {
                     </Text>
                     <PhotoSection
                         label="Before"
-                        photos={job.beforePhotos}
+                        photos={job.before_photos}
                         onAdd={() => addPhoto("before")}
                         colors={colors}
                     />
                     <PhotoSection
                         label="After"
-                        photos={job.afterPhotos}
+                        photos={job.after_photos}
                         onAdd={() => addPhoto("after")}
                         colors={colors}
                     />
@@ -337,12 +337,11 @@ function PhotoSection({
                     {label}
                 </Text>
                 <TouchableOpacity
-                    className="flex-row items-center gap-1 rounded-lg px-2.5 py-1.5"
-                    style={{backgroundColor: colors.secondary}}
+                    className="bg-secondary flex-row items-center gap-1 rounded-lg px-2.5 py-1.5"
                     onPress={onAdd}
                 >
                     <Feather name="plus" size={14} color={colors.primary}/>
-                    <Text className="text-[13px] font-semibold" style={{color: colors.primary}}>
+                    <Text className="text-primary text-[13px] font-semibold">
                         Add
                     </Text>
                 </TouchableOpacity>

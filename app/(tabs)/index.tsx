@@ -1,11 +1,17 @@
 import React from 'react';
-import {View, Text, TouchableOpacity, ScrollView, Platform} from 'react-native';
+import {
+    ScrollView, Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import {useRouter} from 'expo-router';
 import {useAuth} from "@/context/auth-context";
 import {Feather} from "@expo/vector-icons";
 import {BlurView} from "expo-blur";
 import useThemedNavigation from "@/hooks/use-navigation-theme";
 import {useQuote} from "@/context/quote-context";
+import Popover from 'react-native-popover-view';
+import {GlassView} from "expo-glass-effect";
 
 function MetricCard({
                         label,
@@ -29,11 +35,12 @@ function MetricCard({
     );
 }
 
+
 export default function Dashboard() {
     const router = useRouter();
     const {user} = useAuth();
     const {isDark, isIOS, isWeb} = useThemedNavigation();
-    const {quotes, jobs, getTodayJobs, getMonthRevenue } = useQuote();
+    const {quotes, jobs, getTodayJobs, getMonthRevenue} = useQuote();
 
     const todaysJobs = getTodayJobs();
     const monthRevenue = getMonthRevenue();
@@ -44,16 +51,49 @@ export default function Dashboard() {
         <View className="flex-1 bg-background">
             <View className="absolute top-14 border h-[60px] w-full flex-row justify-between items-center px-6">
                 <TouchableOpacity
-                    onPress={() => router.push("/(tabs)/profile")}
+                    onPress={() => router.push("/settings")}
                     className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
                     <Feather name="user" size={24} color="white"/>
                 </TouchableOpacity>
 
                 <View className="flex-row items-center gap-2">
-                    <TouchableOpacity
-                        className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
-                        <Feather name="more-horizontal" size={24} color="white"/>
-                    </TouchableOpacity>
+                    <Popover
+                        from={(
+                            <TouchableOpacity
+                                className="bg-secondary-foreground w-12 h-12 rounded-full flex-row items-center justify-center border border-zinc-300 z-50">
+                                <Feather name="more-horizontal" size={24} color="white"/>
+                            </TouchableOpacity>
+                        )}
+                        arrowSize={{ width: 0, height: 0 }}
+                        displayAreaInsets={{ top: 100, bottom: 100, left: 50, right: 16 }}
+                        popoverShift={{ x: 0, y: 0 }}
+                        popoverStyle={{
+                            backgroundColor: 'transparent',
+                            padding: 0,
+                            borderRadius: 24,
+                            borderColor: 'transparent',
+                            borderWidth: 0,
+                            shadowColor: 'transparent',
+                            shadowOpacity: 0,
+                            shadowRadius: 0,
+                            elevation: 50,
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <GlassView
+                            style={{
+                                width: 200,
+                                height: 250,
+                                padding: 16,
+                                borderRadius: 24,
+                                backgroundColor: 'rgb(24 24 27/0.7)',
+                            }}
+                            glassEffectStyle="clear"
+                        >
+                            <Text>ACTIONS</Text>
+                            {/* List of items here */}
+                        </GlassView>
+                    </Popover>
                 </View>
 
                 {isIOS ? (
@@ -136,16 +176,16 @@ export default function Dashboard() {
                             >
                                 <View className="flex-1 gap-1">
                                     <Text className="text-xs font-semibold" numberOfLines={1}>
-                                        {job.jobName}
+                                        {job.job_name}
                                     </Text>
                                     <Text className="text-[12px]" numberOfLines={1}>
-                                        {job.clientName}
+                                        {job.client_name}
                                     </Text>
                                 </View>
                                 <View className="">
                                     {/*<StatusBadge status={job.status} />*/}
                                     <Text className="text-sm font-bold">
-                                        ${job.totalAmount.toLocaleString()}
+                                        ${job.total_amount.toLocaleString()}
                                     </Text>
                                 </View>
                             </TouchableOpacity>
@@ -172,3 +212,4 @@ export default function Dashboard() {
         </View>
     );
 }
+
