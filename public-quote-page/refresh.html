@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Complete Setup</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="margin:0; padding:20px; font-family: system-ui;">
+<h2>🔄 Please complete your setup</h2>
+<p>Redirecting...</p>
+
+<script>
+  // Call your Edge Function to get new Account Link
+  fetch('https://your-supabase-url.supabase.co/functions/v1/create-stripe-onboarding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId: 'HANDYMAN_USER_ID' }) // Pass via query param or session
+  })
+          .then(r => r.json())
+          .then(data => {
+            window.location.href = data.url; // New onboarding link
+          })
+          .catch(() => {
+            window.location.href = 'https://yourdomain.com/error';
+          });
+</script>
+</body>
+</html>

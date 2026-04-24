@@ -5,6 +5,7 @@ const ProfileLayout = () => {
         <Stack>
             <Stack.Screen name="index" options={{headerShown: false, presentation: 'modal'}}/>
             <Stack.Screen name="profile" options={{headerShown: false}}/>
+            <Stack.Screen name="payment-setup" options={{headerShown: false}}/>
         </Stack>
     )
 };

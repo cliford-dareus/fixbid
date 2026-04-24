@@ -10,6 +10,7 @@ interface Profile {
     address: string;
     hourly_rate: number;
     logo_url?: string;
+    stripe_account_id?: string;
 }
 
 type ProfileContextType = {

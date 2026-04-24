@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Bank Account Connected</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="margin:0; padding:20px; font-family: system-ui;">
+<h2>✅ Bank account connected!</h2>
+<p>Returning to app...</p>
+
+<script>
+  // Redirect to app deep link
+  window.location.href = 'com.yourapp://stripe-return?success=true';
+
+  // Fallback after 2s
+  setTimeout(() => {
+    window.location.href = 'https://yourdomain.com/thank-you';
+  }, 2000);
+</script>
+</body>
+</html>
