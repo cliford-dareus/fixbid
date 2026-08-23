@@ -3,28 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quote - Handyman</title>
+    <title>Quote - FixBid</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <!--    google font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
-          rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: Inter, system-ui, -apple-system, sans-serif;
-        }
-
-        .hammer-icon {
-            font-size: 2rem;
-        }
+        body { font-family: Inter, system-ui, -apple-system, sans-serif; }
+        .hammer-icon { font-size: 2rem; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen py-8">
 <div class="max-w-4xl mx-auto px-4 sm:px-6">
-    <!-- Header -->
-    <div class=" pt-8 pb-6 border-b">
+    <div class="pt-8 pb-6 border-b">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div class="flex items-center gap-4">
                 <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-600 text-white shadow-lg">
@@ -38,22 +30,20 @@
                     </div>
                 </div>
             </div>
-
             <div class="flex flex-col items-end gap-2">
                 <div class="inline-block bg-blue-50 text-blue-600 border-blue-200 px-3 py-1 text-sm font-medium uppercase tracking-wider">
                     Quote #<span id="quote-id" class="font-mono"></span>
                 </div>
                 <div id="issued-date" class="text-sm font-medium text-slate-500"></div>
+                <div id="status-badge" class="hidden text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full"></div>
             </div>
         </div>
     </div>
 
-    <div class="bg-white rounded-3xl shadow-xl overflow-hidden">
-        <!-- Top Orange Bar -->
+    <div class="bg-white rounded-3xl shadow-xl overflow-hidden mt-6">
         <div class="h-2.5 bg-orange-600 w-full"></div>
 
-        <!-- Bill To & Project Info -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 p-8 bg-white rounded-b-2xl">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 p-8 bg-white">
             <div>
                 <p class="uppercase text-xs font-bold tracking-widest text-slate-400 mb-2">Bill To</p>
                 <p id="client-name" class="text-lg font-bold text-slate-900"></p>
@@ -61,14 +51,14 @@
                 <p id="client-phone" class="text-sm text-slate-600 mt-1"></p>
             </div>
             <div>
-                <p class="uppercase text-xs font-bold tracking-widest text-slate-400 mb-2">Project Address</p>
-                <p id="project-address" class="text-slate-600"></p>
+                <p class="uppercase text-xs font-bold tracking-widest text-slate-400 mb-2">Project</p>
+                <p id="job-name" class="text-slate-900 font-semibold"></p>
+                <p id="project-address" class="text-slate-600 mt-1"></p>
             </div>
         </div>
 
         <div class="h-3 bg-slate-50 w-full"></div>
 
-        <!-- Line Items -->
         <div class="px-8 pb-8">
             <table class="w-full">
                 <thead>
@@ -79,170 +69,301 @@
                     <th class="py-5 text-right font-bold text-slate-900">Amount</th>
                 </tr>
                 </thead>
-                <tbody id="line-items" class="divide-y divide-slate-100">
-                <!-- Populated by JavaScript -->
-                </tbody>
+                <tbody id="line-items" class="divide-y divide-slate-100"></tbody>
             </table>
         </div>
 
-        <!-- Total -->
         <div class="flex flex-col justify-between gap-8 md:flex-row p-8">
             <div class="max-w-sm">
                 <h4 class="text-sm font-bold text-slate-900">Notes & Conditions</h4>
                 <p id="quote_note" class="mt-2 text-sm leading-relaxed text-slate-500"></p>
+                <p class="mt-4 text-xs text-slate-400">This quote is valid for 30 days. Deposit secures your booking; balance is due upon completion.</p>
             </div>
-            <div class="w-full md:w-72">
+            <div class="w-full md:w-80">
                 <div class="space-y-3">
                     <div class="flex justify-between text-sm">
                         <span class="text-slate-500">Subtotal</span>
-                        <span id="quote_subtotal" class="font-semibold text-slate-900">${subtotal.toFixed(2)}</span>
+                        <span id="quote_subtotal" class="font-semibold text-slate-900">—</span>
                     </div>
-
                     <div class="flex justify-between text-sm">
                         <span class="text-slate-500">Tax</span>
-                        <span id="quote_tax" class="font-semibold text-slate-900">${tax.toFixed(2)}</span>
+                        <span id="quote_tax" class="font-semibold text-slate-900">$0.00</span>
                     </div>
-                    <div class="h-0.5 bg-slate-50 w-full"></div>
+                    <div class="h-0.5 bg-slate-100 w-full"></div>
                     <div class="flex justify-between pt-1">
                         <p class="text-lg font-bold text-slate-900">Total</p>
-                        <p id="total-amount" class="text-5xl font-black text-slate-900 mt-1"></p>
+                        <p id="total-amount" class="text-3xl font-black text-slate-900"></p>
+                    </div>
+                    <div class="rounded-xl bg-orange-50 border border-orange-100 p-4 space-y-2">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-orange-800 font-medium">Deposit due today (50%)</span>
+                            <span id="deposit-amount" class="font-bold text-orange-900"></span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-500">Balance on completion</span>
+                            <span id="balance-amount" class="font-semibold text-slate-700"></span>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Footer -->
         <div class="bg-slate-50 p-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200">
-            <p class="text-sm text-slate-500 max-w-md">
-                This quote is valid until <span class="font-semibold text-slate-700">30days</span>.
-                Full payment is expected upon completion of the listed services.
+            <p id="footer-message" class="text-sm text-slate-500 max-w-md">
+                Pay a 50% deposit to accept this quote. The remaining balance is due when the work is complete.
             </p>
-            <div id="total_btn" class="flex items-center gap-3">
-            </div>
+            <div id="total_btn" class="flex flex-wrap items-center gap-3"></div>
         </div>
     </div>
 
-    <!--    Action Bar / Trust badges -->
-    <div class="mt-8 flex flex-wrap items-center justify-center gap-8 opacity-60 grayscale hover:opacity-100 transition-all duration-300">
+    <div class="mt-8 flex flex-wrap items-center justify-center gap-8 opacity-60">
         <div class="flex items-center gap-2">
-            <i class="fa-solid fa-credit-card h-5 w-5 text-slate-400"></i>
+            <i class="fa-solid fa-credit-card text-slate-400"></i>
             <span class="text-xs font-bold uppercase tracking-widest text-slate-400">Secure Payments via Stripe</span>
         </div>
-        <div class="flex items-center gap-2">
-            <div class="h-5 w-5 rounded-full bg-slate-400 flex items-center justify-center text-[10px] text-white font-bold">
-                1y
-            </div>
-            <span class="text-xs font-bold uppercase tracking-widest text-slate-400">Service Licensed & Insured</span>
-        </div>
     </div>
-</div>
 </div>
 
 <script>
+(function () {
+    const SUPABASE_FUNCTIONS = 'https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1';
     const urlParams = new URLSearchParams(window.location.search);
     const quoteId = urlParams.get('id');
 
+    /** Escape text for safe use inside HTML text nodes / attributes via textContent patterns */
+    function escapeHtml(str) {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&')
+            .replace(/</g, '<')
+            .replace(/>/g, '>')
+            .replace(/"/g, '"')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatMoney(n) {
+        const num = Number(n) || 0;
+        return '$' + num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function setText(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value == null ? '' : String(value);
+    }
+
+    function setHtmlSafeIconText(id, iconClass, text) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = '';
+        if (iconClass) {
+            const icon = document.createElement('i');
+            icon.className = iconClass;
+            el.appendChild(icon);
+            el.appendChild(document.createTextNode(' '));
+        }
+        el.appendChild(document.createTextNode(text || ''));
+    }
+
+    const PAID_STATUSES = ['accepted', 'approved', 'deposit_paid', 'paid'];
+    const DECLINED_STATUSES = ['declined'];
+
+    let currentQuote = null;
+    let currentHandyman = null;
+
     async function loadQuote() {
         if (!quoteId) {
-            document.body.innerHTML = `<p class="text-center py-20 text-red-600">Quote ID missing</p>`;
+            document.body.innerHTML = '<p class="text-center py-20 text-red-600">Quote ID missing</p>';
             return;
         }
 
         try {
-            const res = await fetch(`https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1/public-quote?id=${quoteId}`);
+            const res = await fetch(SUPABASE_FUNCTIONS + '/public-quote?id=' + encodeURIComponent(quoteId));
             const data = await res.json();
+            if (!data.success) throw new Error('Quote not found');
 
-            if (!data.success) throw new Error("Quote not found");
-
-            const q = data.quote;
-            const h = data.handyman;
-
-            // Fill in data
-            document.getElementById('contractor-name').innerHTML = h.full_name || h.business_name || 'Handyman';
-            document.getElementById('contractor-phone').innerHTML = h.phone ? `<i class="fa-solid fa-phone"></i> ${h.phone}` : '<i class="fa-solid fa-phone"></i> 786-555-5555';
-            document.getElementById('contractor-email').innerHTML = h.email ? `<i class="fa-solid fa-envelope"></i> ${h.email}` : '<i class="fa-solid fa-envelope"></i> Johnthehandyman@gmail.com';
-            document.getElementById('quote-id').textContent = q.id.slice(0, 8);
-            document.getElementById('issued-date').textContent = "Issued on " + new Date(q.created_at).toLocaleDateString('en-US', {
-                month: 'long',
-                day: 'numeric',
-                year: 'numeric'
-            });
-            document.getElementById('client-name').textContent = q.client_name;
-            document.getElementById('client-phone').innerHTML = `${q.client_phone || ''}`;
-            document.getElementById('client-email').innerHTML = `${q.client_email || 'no email provided'}`
-            document.getElementById('project-address').innerHTML = '<i class="fa-solid fa-location-dot"></i> South Florida Area';
-            document.getElementById('total-amount').textContent = '$' + q.total_amount;
-
-            // Render line items
-            const tbody = document.getElementById('line-items');
-            tbody.innerHTML = q.line_items.map(item => `
-          <tr class="hover:bg-slate-50">
-            <td class="py-6 font-medium">${item.description}</td>
-            <td class="py-6 text-center">${item.quantity}</td>
-            <td class="py-6 text-right">$${item.unit_price}</td>
-            <td class="py-6 text-right font-semibold">$${(item.unit_price * item.quantity).toFixed(2)}</td>
-          </tr>
-        `).join('');
-
-            // Render Total
-            const quoteSubtotal = document.getElementById('quote_subtotal');
-            const quoteNote = document.getElementById('quote_note');
-            const quoteTax = document.getElementById('quote_tax');
-            quoteSubtotal.textContent = '$' + q.line_items.reduce((acc, item) => acc + (item.unit_price * item.quantity), 0).toFixed(2);
-            quoteNote.textContent = q.notes || 'No notes provided';
-            quoteTax.textContent = '0%'
-
-            // Render the button
-            const totalBtn = document.getElementById('total_btn');
-            totalBtn.innerHTML = `
-                <button class="h-10 inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none px-2.4 py-1 gap-2 border border-slate-300 rounded-2xl font-medium text-slate-700 hover:bg-slate-100 transition-colors">
-                    <i class="fa-regular fa-floppy-disk mr-2"></i> PDF
-                </button>
-                <div class="h-8 w-px bg-slate-300 hidden sm:block mx-1"></div>
-                <button
-                    onclick="window.history.back()"
-                    class="h-10 inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none px-2.4 py-1 gap-2 border border-slate-300 rounded-2xl font-medium text-slate-700 hover:bg-slate-100 transition-colors">
-                    <i class="fa-solid fa-x mr-2"></i>
-                    Decline
-                </button>
-                <button onclick="payDeposit(${q.total_amount}, '${q.id}', '${q.client_name}', '${q.handyman_id}')"
-                    class="h-10 text-white bg-orange-600 hover:bg-orange-700 inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none px-3 py-1 gap-2 border border-slate-300 rounded-2xl font-medium transition-colors">
-                <i class="fa-solid fa-credit-card mr-2"></i>
-                Pay 50% Deposit Now
-                </button>
-            `
-
+            currentQuote = data.quote;
+            currentHandyman = data.handyman || {};
+            renderQuote(currentQuote, currentHandyman);
         } catch (err) {
-            document.body.innerHTML = `<div class="text-center py-20"><p class="text-red-600">Could not load quote. Please ask Cliford to resend the link.</p></div>`;
+            console.error(err);
+            document.body.innerHTML =
+                '<div class="text-center py-20"><p class="text-red-600">Could not load quote. Please ask the contractor to resend the link.</p></div>';
         }
     }
 
-    async function payDeposit(depositAmount, quoteId, clientName, handymanId) {
+    function renderQuote(q, h) {
+        const lineItems = q.line_items || q.quote_line_items || [];
+        const total = Number(q.total_amount) || lineItems.reduce(function (acc, item) {
+            return acc + (Number(item.unit_price) * Number(item.quantity));
+        }, 0);
+        const deposit = Math.round(total * 50) / 100; // 50%, keep cents
+        const balance = Math.round((total - deposit) * 100) / 100;
+        const status = (q.status || 'sent').toLowerCase();
+        const isPaid = PAID_STATUSES.indexOf(status) !== -1;
+        const isDeclined = DECLINED_STATUSES.indexOf(status) !== -1;
+
+        setText('contractor-name', h.business_name || h.full_name || 'Handyman');
+        setHtmlSafeIconText('contractor-phone', 'fa-solid fa-phone', h.phone || '');
+        setHtmlSafeIconText('contractor-email', 'fa-solid fa-envelope', h.email || '');
+
+        setText('quote-id', (q.id || '').slice(0, 8));
+        setText('issued-date', 'Issued on ' + new Date(q.created_at).toLocaleDateString('en-US', {
+            month: 'long', day: 'numeric', year: 'numeric'
+        }));
+
+        const badge = document.getElementById('status-badge');
+        if (badge) {
+            badge.classList.remove('hidden');
+            if (isPaid) {
+                badge.textContent = 'Deposit paid';
+                badge.className = 'text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-green-100 text-green-700';
+            } else if (isDeclined) {
+                badge.textContent = 'Declined';
+                badge.className = 'text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-red-100 text-red-700';
+            } else {
+                badge.textContent = status === 'draft' ? 'Draft' : 'Awaiting deposit';
+                badge.className = 'text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-amber-100 text-amber-800';
+            }
+        }
+
+        setText('client-name', q.client_name || '');
+        setText('client-phone', q.client_phone || '');
+        setText('client-email', q.client_email || '');
+        setText('job-name', q.job_name || 'Service quote');
+        setHtmlSafeIconText('project-address', 'fa-solid fa-location-dot', q.project_address || q.address || '');
+
+        const tbody = document.getElementById('line-items');
+        tbody.innerHTML = '';
+        lineItems.forEach(function (item) {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50';
+            const qty = Number(item.quantity) || 0;
+            const price = Number(item.unit_price) || 0;
+            const cells = [
+                item.description || '',
+                String(qty),
+                formatMoney(price),
+                formatMoney(price * qty)
+            ];
+            const aligns = ['text-left', 'text-center', 'text-right', 'text-right font-semibold'];
+            cells.forEach(function (val, i) {
+                const td = document.createElement('td');
+                td.className = 'py-6 ' + aligns[i];
+                td.textContent = val;
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+
+        const subtotal = lineItems.reduce(function (acc, item) {
+            return acc + (Number(item.unit_price) * Number(item.quantity));
+        }, 0);
+
+        setText('quote_subtotal', formatMoney(subtotal));
+        setText('quote_tax', '$0.00');
+        setText('total-amount', formatMoney(total));
+        setText('deposit-amount', formatMoney(deposit));
+        setText('balance-amount', formatMoney(balance));
+        setText('quote_note', q.notes || 'No notes provided');
+
+        const totalBtn = document.getElementById('total_btn');
+        totalBtn.innerHTML = '';
+
+        if (isPaid) {
+            setText('footer-message', 'Thank you — your deposit was received. The contractor will contact you to schedule the work.');
+            const done = document.createElement('div');
+            done.className = 'flex items-center gap-2 text-green-700 font-semibold';
+            done.innerHTML = '<i class="fa-solid fa-circle-check"></i> Deposit received';
+            totalBtn.appendChild(done);
+            return;
+        }
+
+        if (isDeclined) {
+            setText('footer-message', 'This quote was declined. Contact the contractor if you would like a revised quote.');
+            return;
+        }
+
+        const declineBtn = document.createElement('button');
+        declineBtn.type = 'button';
+        declineBtn.className = 'h-10 inline-flex items-center justify-center px-4 gap-2 border border-slate-300 rounded-2xl text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors';
+        declineBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> Decline';
+        declineBtn.addEventListener('click', function () { declineQuote(q.id); });
+
+        const payBtn = document.createElement('button');
+        payBtn.type = 'button';
+        payBtn.className = 'h-10 text-white bg-orange-600 hover:bg-orange-700 inline-flex items-center justify-center px-4 gap-2 rounded-2xl text-sm font-medium transition-colors';
+        payBtn.innerHTML = '<i class="fa-solid fa-credit-card"></i> Pay ' + formatMoney(deposit) + ' Deposit';
+        payBtn.addEventListener('click', function () {
+            payDeposit(q.id, deposit, q.client_name || '');
+        });
+
+        totalBtn.appendChild(declineBtn);
+        totalBtn.appendChild(payBtn);
+    }
+
+    async function payDeposit(id, depositAmount, clientName) {
         try {
-            const res = await fetch('https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1/create-checkout-session', {
+            const res = await fetch(SUPABASE_FUNCTIONS + '/create-checkout-session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    quote_id: quoteId,
+                    quote_id: id,
+                    // Server should recompute; client sends 50% as a hint only
                     deposit_amount: depositAmount,
                     client_name: clientName,
-                })
+                }),
             });
 
             const data = await res.json();
-
             if (data.error) throw new Error(data.error);
             if (data.url) {
-                window.location.href = data.url;   // Redirect to Stripe Checkout
+                window.location.href = data.url;
+                return;
             }
+            throw new Error('No checkout URL returned');
         } catch (err) {
-            alert("Unable to start payment. Please try again or contact Cliford.");
             console.error(err);
+            alert('Unable to start payment. Please try again or contact the contractor.');
         }
     }
 
-    // Load when page opens
+    async function declineQuote(id) {
+        if (!confirm('Decline this quote? The contractor will be notified.')) return;
+        try {
+            const res = await fetch(SUPABASE_FUNCTIONS + '/public-quote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quote_id: id, action: 'decline' }),
+            });
+            // Prefer dedicated endpoint if available; fall back to local UI update
+            let ok = res.ok;
+            try {
+                const data = await res.json();
+                if (data && data.error) ok = false;
+            } catch (_) { /* non-JSON is fine */ }
+
+            if (!ok) {
+                // Fallback: try update-status style path used by some backends
+                await fetch(SUPABASE_FUNCTIONS + '/update-quote-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ quote_id: id, status: 'declined' }),
+                }).catch(function () {});
+            }
+
+            if (currentQuote) {
+                currentQuote.status = 'declined';
+                renderQuote(currentQuote, currentHandyman || {});
+            }
+            alert('Quote declined. Thank you for your response.');
+        } catch (err) {
+            console.error(err);
+            alert('Could not decline the quote. Please contact the contractor directly.');
+        }
+    }
+
     loadQuote();
+})();
 </script>
 </body>
 </html>
