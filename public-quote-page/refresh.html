@@ -1,28 +1,45 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Complete Setup</title>
+  <title>Complete Setup - FixBid</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
-<body style="margin:0; padding:20px; font-family: system-ui;">
-<h2>🔄 Please complete your setup</h2>
-<p>Redirecting...</p>
+<body style="margin:0; padding:24px; font-family: system-ui, -apple-system, sans-serif; text-align:center;">
+  <h2>🔄 Please complete your payout setup</h2>
+  <p id="status">Redirecting…</p>
 
 <script>
-  // Call your Edge Function to get new Account Link
-  fetch('https://your-supabase-url.supabase.co/functions/v1/create-stripe-onboarding', {
+(function () {
+  const SUPABASE_FUNCTIONS = 'https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1';
+  const params = new URLSearchParams(window.location.search);
+  const userId = params.get('userId') || params.get('user_id');
+
+  if (!userId) {
+    document.getElementById('status').textContent =
+      'Missing user id. Open payout setup again from the FixBid app.';
+    return;
+  }
+
+  fetch(SUPABASE_FUNCTIONS + '/create-stripe-onboarding', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId: 'HANDYMAN_USER_ID' }) // Pass via query param or session
+    body: JSON.stringify({ userId: userId }),
   })
-          .then(r => r.json())
-          .then(data => {
-            window.location.href = data.url; // New onboarding link
-          })
-          .catch(() => {
-            window.location.href = 'https://yourdomain.com/error';
-          });
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        document.getElementById('status').textContent =
+          data.error || 'Could not create onboarding link. Try again from the app.';
+      }
+    })
+    .catch(function () {
+      document.getElementById('status').textContent =
+        'Network error. Please try again from the FixBid app.';
+    });
+})();
 </script>
 </body>
 </html>
