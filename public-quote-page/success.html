@@ -3,111 +3,129 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quote - Handyman</title>
+    <title>Payment Received - FixBid</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <!--    google font -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
-          rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: Inter, system-ui, -apple-system, sans-serif;
-        }
+        body { font-family: Inter, system-ui, -apple-system, sans-serif; }
     </style>
 </head>
-<body class="bg-slate-50 min-h-screen py-8">
+<body class="bg-slate-50 min-h-screen py-8 flex items-center justify-center px-4">
 <div class="w-full max-w-md mx-auto">
     <div class="bg-white rounded-3xl shadow-xl overflow-hidden">
-        <!-- Top Orange Bar -->
         <div class="h-2.5 bg-orange-600 w-full"></div>
 
-        <div class="flex flex-col items-center pt-10 pb-2 text-center">
+        <div class="flex flex-col items-center pt-10 pb-2 text-center px-6">
             <div class="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-green-50 text-green-500 ring-8 ring-green-50/50">
-                <i class="fa-solid fa-check h-10 w-10"></i>
+                <i class="fa-solid fa-check text-3xl"></i>
             </div>
             <h1 class="text-3xl font-black tracking-tight text-slate-900">Payment Received!</h1>
-            <p class="mt-2 text-slate-500">Thank you for your business. Your payment has been processed
-                successfully.</p>
+            <p class="mt-2 text-slate-500">Thank you for your business. Your deposit has been processed successfully.</p>
         </div>
 
         <div class="px-8 pb-10">
             <div class="mt-6 rounded-xl bg-slate-50 p-6">
                 <div class="space-y-4">
                     <div class="flex justify-between text-sm">
-                        <span class="text-slate-500">Receipt ID</span>
-                        <span id="receipt_id" class="font-mono font-semibold text-slate-900">RCP-{quoteId?.split('-')[1] || '9928'}</span>
+                        <span class="text-slate-500">Quote ID</span>
+                        <span id="quote_id" class="font-mono font-semibold text-slate-900">—</span>
                     </div>
                     <div class="flex justify-between text-sm">
-                        <span class="text-slate-500">Quote ID</span>
-                        <span id="quote_id" class="font-medium text-slate-900">{quoteId}</span>
-                    </div>
-                    <div class="flex justify-between text-sm text-slate-500">
-                        <span>Method</span>
-                        <span class="flex items-center gap-1.5 font-medium text-slate-900">
-                    <span class="h-1.5 w-1.5 rounded-full bg-blue-500"> Visa ending in 4242</span>
+                        <span class="text-slate-500">Session</span>
+                        <span id="session_id" class="font-mono text-xs text-slate-600 truncate max-w-[180px]">—</span>
                     </div>
                     <div class="border-t border-dashed border-slate-200 pt-4 font-bold">
                         <div class="flex justify-between text-base">
                             <span class="text-slate-900">Amount Paid</span>
-                            <span id="amount" class="text-slate-900">${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            <span id="amount" class="text-slate-900">—</span>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div class="mt-8 grid grid-cols-2 gap-4">
-                <button class="h-11 w-full bg-white shadow-sm" onClick={()
-                => window.print()}>
-                <Printer class="mr-2 h-4 w-4"/>
-                Print
+                <button type="button" id="btn-print"
+                        class="h-11 w-full rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+                    <i class="fa-solid fa-print mr-2"></i>Print
                 </button>
-                <button class="h-11 w-full bg-white shadow-sm" onClick={copyReceiptLink}>
-                    <Share2 class="mr-2 h-4 w-4"/>
-                    Share
+                <button type="button" id="btn-share"
+                        class="h-11 w-full rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+                    <i class="fa-solid fa-share-nodes mr-2"></i>Share
                 </button>
             </div>
 
-            <div class="h-0.5 bg-slate-50 w-full my-8"></div>
+            <div class="h-px bg-slate-100 w-full my-8"></div>
 
-            <div class="flex flex-col gap-3">
-                <button class="h-12 w-full bg-slate-900 text-white shadow-lg hover:bg-slate-800">
-                    <a href="/">
-                        <Home class="mr-2 h-4 w-4"/>
-                        Return to Dashboard
-                    </a>
-                </button>
-                <p class="text-center text-xs text-slate-400">
-                    A copy of this receipt has been sent to your email.
-                </p>
-            </div>
+            <a id="btn-home" href="/"
+               class="flex h-12 w-full items-center justify-center rounded-xl bg-slate-900 text-white text-sm font-semibold shadow-lg hover:bg-slate-800">
+                <i class="fa-solid fa-house mr-2"></i>Done
+            </a>
+            <p class="mt-4 text-center text-xs text-slate-400">
+                A receipt may also be sent by Stripe to the email used at checkout.
+            </p>
+            <p id="error-msg" class="mt-4 text-center text-sm text-red-600 hidden"></p>
         </div>
     </div>
 </div>
 
 <script>
-    // Optional: You can read session_id from URL if needed
+(function () {
+    const SUPABASE_FUNCTIONS = 'https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1';
     const urlParams = new URLSearchParams(window.location.search);
     const sessionId = urlParams.get('session_id');
 
-    if (sessionId) {
-        async function loadAndSendSuccess() {
-            try {
-                const res = await fetch(`https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1/update-quote-on-success?session_id=${sessionId}`);
-                const data = await res.json();
-                if(!data.success) throw new Error(data.message);
-
-                document.getElementById('quote_id').innerText = data.quote_id;
-                document.getElementById('amount').innerText = data.amount;
-            } catch (e) {
-                document.body.innerHTML = `<div class="text-center py-20"><p class="text-red-600">Could not load quote. Please ask Cliford to resend the link.</p></div>`;
-            }
-        }
-
-        loadAndSendSuccess();
+    function formatMoney(n) {
+        const num = Number(n);
+        if (Number.isNaN(num)) return String(n || '—');
+        return '$' + num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-    // console.log("Payment success page loaded");
+
+    document.getElementById('btn-print').addEventListener('click', function () {
+        window.print();
+    });
+
+    document.getElementById('btn-share').addEventListener('click', async function () {
+        const text = 'Payment confirmation' +
+            (sessionId ? ' (session ' + sessionId + ')' : '') +
+            ' — FixBid';
+        try {
+            if (navigator.share) {
+                await navigator.share({ title: 'Payment Received', text: text, url: window.location.href });
+            } else if (navigator.clipboard) {
+                await navigator.clipboard.writeText(window.location.href);
+                alert('Link copied to clipboard');
+            }
+        } catch (e) {
+            console.warn(e);
+        }
+    });
+
+    if (sessionId) {
+        document.getElementById('session_id').textContent = sessionId;
+
+        fetch(SUPABASE_FUNCTIONS + '/update-quote-on-success?session_id=' + encodeURIComponent(sessionId))
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (!data.success) throw new Error(data.message || 'Could not confirm payment');
+                if (data.quote_id) {
+                    document.getElementById('quote_id').textContent = String(data.quote_id).slice(0, 8);
+                    document.getElementById('btn-home').href = '/?id=' + encodeURIComponent(data.quote_id);
+                }
+                if (data.amount != null) {
+                    document.getElementById('amount').textContent = formatMoney(data.amount);
+                }
+            })
+            .catch(function (e) {
+                console.error(e);
+                var err = document.getElementById('error-msg');
+                err.textContent = 'Payment may have succeeded, but we could not refresh quote status. Your contractor can confirm the deposit.';
+                err.classList.remove('hidden');
+            });
+    } else {
+        document.getElementById('amount').textContent = 'Confirmed';
+    }
+})();
 </script>
 </body>
 </html>
