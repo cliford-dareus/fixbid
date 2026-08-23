@@ -8,8 +8,6 @@
 </head>
 <body class="bg-gray-50 min-h-screen flex items-center justify-center p-6">
 <div class="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden text-center">
-
-    <!-- Header -->
     <div class="bg-orange-500 py-12">
         <div class="w-20 h-20 bg-white rounded-full mx-auto flex items-center justify-center text-5xl shadow">
             ⚠️
@@ -26,12 +24,14 @@
 
         <div class="mt-10 space-y-4">
             <button
-                    onclick="goBackToQuote()"
+                    type="button"
+                    id="btn-back"
                     class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-5 rounded-2xl transition-colors">
                 Return to Quote
             </button>
 
             <button
+                    type="button"
                     onclick="window.close()"
                     class="w-full border border-gray-300 text-gray-700 font-medium py-5 rounded-2xl hover:bg-gray-50 transition-colors">
                 Close Window
@@ -39,23 +39,26 @@
         </div>
 
         <p class="text-xs text-gray-500 mt-10">
-            Feel free to text Cliford if you have any questions
+            Contact your contractor if you have any questions.
         </p>
     </div>
 </div>
 
 <script>
-    function goBackToQuote() {
-        // Go back to the original quote page (preserves the ?id= parameter)
+(function () {
+    document.getElementById('btn-back').addEventListener('click', function () {
         const urlParams = new URLSearchParams(window.location.search);
-        const quoteId = urlParams.get('id');
-
+        const quoteId = urlParams.get('id') || urlParams.get('quote_id');
         if (quoteId) {
-            window.location.href = `https://your-vercel-app.vercel.app/?id=${quoteId}`;
+            // Same origin as the deployed public quote site
+            window.location.href = '/?id=' + encodeURIComponent(quoteId);
+        } else if (document.referrer) {
+            window.location.href = document.referrer;
         } else {
             window.history.back();
         }
-    }
+    });
+})();
 </script>
 </body>
 </html>
