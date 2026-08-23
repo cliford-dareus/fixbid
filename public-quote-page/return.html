@@ -1,21 +1,20 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Bank Account Connected</title>
+  <title>Bank Account Connected - FixBid</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
-<body style="margin:0; padding:20px; font-family: system-ui;">
-<h2>✅ Bank account connected!</h2>
-<p>Returning to app...</p>
+<body style="margin:0; padding:24px; font-family: system-ui, -apple-system, sans-serif; text-align:center;">
+  <h2>✅ Bank account connected</h2>
+  <p>Returning to the FixBid app…</p>
+  <p style="margin-top:24px;"><a id="open-app" href="fixbid://stripe-return?success=true">Open FixBid</a></p>
 
 <script>
-  // Redirect to app deep link
-  window.location.href = 'com.yourapp://stripe-return?success=true';
-
-  // Fallback after 2s
-  setTimeout(() => {
-    window.location.href = 'https://yourdomain.com/thank-you';
+  // Deep link matches app.json scheme: "fixbid"
+  window.location.href = 'fixbid://stripe-return?success=true';
+  setTimeout(function () {
+    // Stay on page with manual link if the app did not open
   }, 2000);
 </script>
 </body>
