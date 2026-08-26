@@ -1,22 +1,24 @@
 import React, {useState} from 'react';
 import {View, Text, TextInput, TouchableOpacity, ScrollView, Alert, KeyboardAvoidingView, Platform, ActivityIndicator} from 'react-native';
 import {useRouter} from 'expo-router';
-import {useQuote} from "@/context/quote-context";
-import {Image} from "expo-image";
+import {useQuote} from '@/context/quote-context';
+import {useAuth} from '@/context/auth-context';
+import {Image} from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import {supabase} from "@/lib/supabase";
-import {uploadPhotoFromUri} from "@/lib/upload-photo";
-import {Feather} from "@expo/vector-icons";
-import {useSafeAreaInsets} from "react-native-safe-area-context";
-import {calculateJobCost, JOB_TEMPLATES} from "@/data/templates";
-import useThemedNavigation from "@/hooks/use-navigation-theme";
-import {useProfile} from "@/context/profile-context";
+import {quotesApi} from '@/lib/data';
+import {uploadPhotoFromUri} from '@/lib/upload-photo';
+import {Feather} from '@expo/vector-icons';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {calculateJobCost, JOB_TEMPLATES} from '@/data/templates';
+import useThemedNavigation from '@/hooks/use-navigation-theme';
+import {useProfile} from '@/context/profile-context';
 
 export default function NewQuote() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const {user} = useAuth();
     const {
         newQuote,
         clients,
@@ -32,10 +34,10 @@ export default function NewQuote() {
     } = useQuote();
     const {profile} = useProfile();
     const {colors} = useThemedNavigation();
-    const [step, setStep] = useState<"photo" | "details">("photo");
+    const [step, setStep] = useState<'photo' | 'details'>('photo');
     const [photos, setPhotos] = useState<string[]>([]);
-    const [jobName, setJobName] = useState(newQuote?.job_name || "");
-    const [notes, setNotes] = useState("");
+    const [jobName, setJobName] = useState(newQuote?.job_name || '');
+    const [notes, setNotes] = useState('');
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
     const [clientName, setClientName] = useState('');
     const [clientPhone, setClientPhone] = useState('');
@@ -50,7 +52,6 @@ export default function NewQuote() {
         })();
     }, []);
 
-    // Keep free-text fields in sync when a saved client is selected
     React.useEffect(() => {
         if (!selectedClientId) return;
         const client = clients.find((c) => c.id === selectedClientId);
@@ -60,8 +61,9 @@ export default function NewQuote() {
         }
     }, [selectedClientId, clients]);
 
-    const total = lineItems.reduce((sum, item) =>
-        sum + ((item?.quantity || 0) * (item?.unitPrice || 0)), 0
+    const total = lineItems.reduce(
+        (sum, item) => sum + (item?.quantity || 0) * (item?.unitPrice || 0),
+        0,
     );
 
     const resolvedClientName = (() => {
@@ -81,15 +83,15 @@ export default function NewQuote() {
     })();
 
     const pickPhoto = async () => {
-        if (Platform.OS !== "web") {
+        if (Platform.OS !== 'web') {
             const {status} = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (status !== "granted") {
-                Alert.alert("Permission needed", "Allow photo access to upload job photos.");
+            if (status !== 'granted') {
+                Alert.alert('Permission needed', 'Allow photo access to upload job photos.');
                 return;
             }
         }
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images"],
+            mediaTypes: ['images'],
             allowsMultipleSelection: true,
             quality: 0.8,
         });
@@ -100,10 +102,10 @@ export default function NewQuote() {
     };
 
     const takePhoto = async () => {
-        if (Platform.OS !== "web") {
+        if (Platform.OS !== 'web') {
             const {status} = await ImagePicker.requestCameraPermissionsAsync();
-            if (status !== "granted") {
-                Alert.alert("Permission needed", "Allow camera access to take job photos.");
+            if (status !== 'granted') {
+                Alert.alert('Permission needed', 'Allow camera access to take job photos.');
                 return;
             }
             const result = await ImagePicker.launchCameraAsync({quality: 0.8});
@@ -111,7 +113,7 @@ export default function NewQuote() {
                 setPhotos((prev) => [...prev, result.assets[0].uri].slice(0, 5));
             }
         } else {
-            Alert.alert("Camera not available on web", "Use the upload button instead.");
+            Alert.alert('Camera not available on web', 'Use the upload button instead.');
         }
     };
 
@@ -127,45 +129,24 @@ export default function NewQuote() {
             return;
         }
 
+        if (!user?.id) {
+            Alert.alert('Not logged in');
+            return;
+        }
+
         setSaving(true);
         try {
-            const {data: {user}} = await supabase.auth.getUser();
-            if (!user) {
-                Alert.alert('Not logged in');
-                return;
-            }
-
-            // Upload job-level photos
             const photoUrls = await Promise.all(
-                photos.map((photoUri) => uploadPhotoFromUri(photoUri, user.id))
+                photos.map((photoUri) => uploadPhotoFromUri(photoUri, user.id)),
             );
 
             const client = selectedClientId
                 ? clients.find((c) => c.id === selectedClientId) ?? null
                 : null;
 
-            // 1. Create the Quote (client_id is optional when using free-text)
-            const {data: quote, error: quoteError} = await supabase
-                .from('quotes')
-                .insert({
-                    handyman_id: user.id,
-                    client_name: resolvedClientName,
-                    client_phone: resolvedClientPhone || null,
-                    job_name: activeJobName,
-                    client_id: client?.id ?? null,
-                    notes: notes || null,
-                    photos: photoUrls,
-                    total_amount: total,
-                    status: 'draft',
-                })
-                .select()
-                .single();
-
-            if (quoteError) throw quoteError;
-
-            // 2. Upload line-item photos (if any) and insert line items
+            const linePayload = [];
             for (const item of lineItems) {
-                let photoUrl = '';
+                let photoUrl: string | null = null;
                 if (item.photoUri) {
                     try {
                         photoUrl = await uploadPhotoFromUri(item.photoUri, user.id);
@@ -173,20 +154,30 @@ export default function NewQuote() {
                         console.warn('Line-item photo upload failed, continuing without it', uploadErr);
                     }
                 }
-
-                const {error: lineError} = await supabase.from('quote_line_items').insert({
-                    quote_id: quote.id,
+                linePayload.push({
                     description: item.description,
                     quantity: item.quantity,
                     unit_price: item.unitPrice,
                     is_labor: item.isLabor ?? false,
-                    photo_url: photoUrl || null,
+                    photo_url: photoUrl,
                 });
-
-                if (lineError) throw lineError;
             }
 
-            // Refresh list so the new quote appears immediately
+            const result = await quotesApi.createQuote({
+                handyman_id: user.id,
+                client_name: resolvedClientName,
+                client_phone: resolvedClientPhone || null,
+                job_name: activeJobName,
+                client_id: client?.id ?? null,
+                notes: notes || null,
+                photos: photoUrls,
+                total_amount: total,
+                status: 'draft',
+                line_items: linePayload,
+            });
+
+            if (!result.ok) throw new Error(result.error);
+
             try {
                 await fetchQuotes();
             } catch {
@@ -221,9 +212,7 @@ export default function NewQuote() {
         }
 
         const businessName =
-            profile?.business_name ||
-            profile?.full_name ||
-            'Professional Handyman';
+            profile?.business_name || profile?.full_name || 'Professional Handyman';
         const businessPhone = profile?.phone || '';
         const businessLocation = profile?.address || '';
         const activeJobName = (newQuote?.job_name || jobName || 'Quote').trim();
@@ -265,21 +254,29 @@ export default function NewQuote() {
                     </tr>
                   </thead>
                   <tbody>
-                    ${lineItems.map(item => `
+                    ${lineItems
+                        .map(
+                            (item) => `
                       <tr>
                         <td>${item.description || ''}</td>
                         <td>${item.quantity}</td>
                         <td>$${Number(item.unitPrice).toFixed(2)}</td>
                         <td>$${(Number(item.quantity) * Number(item.unitPrice)).toFixed(2)}</td>
                       </tr>
-                      ${item.photoUri ? `
+                      ${
+                          item.photoUri
+                              ? `
                         <tr>
                           <td colspan="4">
                             <img src="${item.photoUri}" class="photo" alt="Before photo" />
                           </td>
                         </tr>
-                      ` : ''}
-                    `).join('')}
+                      `
+                              : ''
+                      }
+                    `,
+                        )
+                        .join('')}
                   </tbody>
                 </table>
 
@@ -308,9 +305,15 @@ export default function NewQuote() {
                     UTI: 'com.adobe.pdf',
                 });
 
-                Alert.alert('Success!', 'PDF generated and share sheet opened.\n\nYou can send it via text, email, or WhatsApp.');
+                Alert.alert(
+                    'Success!',
+                    'PDF generated and share sheet opened.\n\nYou can send it via text, email, or WhatsApp.',
+                );
             } else {
-                Alert.alert('Sharing not available', 'PDF saved to cache but cannot share on this device.');
+                Alert.alert(
+                    'Sharing not available',
+                    'PDF saved to cache but cannot share on this device.',
+                );
             }
         } catch (error) {
             console.error(error);
@@ -320,14 +323,14 @@ export default function NewQuote() {
 
     const suggestTemplate = () => {
         if (photos.length === 0 && !jobName) {
-            setStep("details");
+            setStep('details');
             return;
         }
         const lowerName = jobName.toLowerCase();
         const match = JOB_TEMPLATES.find(
             (t) =>
-                lowerName.includes(t.name.toLowerCase().split(" ")[0]) ||
-                lowerName.includes(t.category.toLowerCase())
+                lowerName.includes(t.name.toLowerCase().split(' ')[0]) ||
+                lowerName.includes(t.category.toLowerCase()),
         );
         if (match) {
             const cost = calculateJobCost(match);
@@ -335,21 +338,20 @@ export default function NewQuote() {
                 `Suggested: ${match.name}`,
                 `Template match found!\n\nEstimated: $${cost.suggested}\nTime: ${match.timeEstimateHours}h\n\nApply this template?`,
                 [
-                    {text: "No thanks", style: "cancel", onPress: () => setStep("details")},
+                    {text: 'No thanks', style: 'cancel', onPress: () => setStep('details')},
                     {
-                        text: "Use template",
+                        text: 'Use template',
                         onPress: () => {
-                            // Align with Quote interface (snake_case fields)
                             addNewQuote({
-                                client_id: "",
-                                client_name: "",
+                                client_id: null,
+                                client_name: '',
                                 job_name: match.name,
                                 quote_line_items: [],
-                                notes: "",
+                                notes: '',
                                 total_amount: cost.suggested,
-                                status: "draft",
+                                status: 'draft',
                                 photos: [],
-                            } as any);
+                            });
 
                             setJobName(match.name);
                             setLineItems([
@@ -369,26 +371,27 @@ export default function NewQuote() {
                                     })),
                             ]);
 
-                            setStep("details");
+                            setStep('details');
                         },
                     },
-                ]
+                ],
             );
         } else {
-            setStep("details");
+            setStep('details');
         }
     };
 
-    if (step === "photo" && !newQuote) {
+    if (step === 'photo' && !newQuote) {
         return (
             <View className="flex-1 bg-background">
-                <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: insets.top + 16}}>
+                <View
+                    className="flex-row items-center justify-between px-5 pb-3"
+                    style={{paddingTop: insets.top + 16}}
+                >
                     <TouchableOpacity onPress={() => router.back()}>
-                        <Feather name="x" size={24} color={colors.foreground || "#111"}/>
+                        <Feather name="x" size={24} color={colors.foreground || '#111'}/>
                     </TouchableOpacity>
-                    <Text className="text-foreground text-[17px] font-bold">
-                        New Quote
-                    </Text>
+                    <Text className="text-foreground text-[17px] font-bold">New Quote</Text>
                     <View className="w-6"/>
                 </View>
 
@@ -397,7 +400,8 @@ export default function NewQuote() {
                         <Feather name="camera" size={40} color="#94A3B8"/>
                         <Text className="text-[22px] font-extrabold text-white">Photo → Quote</Text>
                         <Text className="text-sm text-center leading-5 text-slate-400">
-                            Take or upload photos of the job. We'll suggest the right template automatically.
+                            Take or upload photos of the job. We'll suggest the right template
+                            automatically.
                         </Text>
                     </View>
 
@@ -408,11 +412,7 @@ export default function NewQuote() {
                                     <Image
                                         source={{uri}}
                                         className="rounded-[10px]"
-                                        style={{
-                                            width: 100,
-                                            height: 100,
-                                            borderRadius: 10
-                                        }}
+                                        style={{width: 100, height: 100, borderRadius: 10}}
                                         contentFit="cover"
                                     />
                                     <TouchableOpacity
@@ -432,10 +432,8 @@ export default function NewQuote() {
                             onPress={takePhoto}
                             activeOpacity={0.8}
                         >
-                            <Feather name="camera" size={24} color={colors.primary || "#3b82f6"}/>
-                            <Text className="text-foreground text-[15px] font-semibold">
-                                Camera
-                            </Text>
+                            <Feather name="camera" size={24} color={colors.primary || '#3b82f6'}/>
+                            <Text className="text-foreground text-[15px] font-semibold">Camera</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -443,10 +441,8 @@ export default function NewQuote() {
                             onPress={pickPhoto}
                             activeOpacity={0.8}
                         >
-                            <Feather name="image" size={24} color={colors.primary || "#3b82f6"}/>
-                            <Text className="text-foreground text-[15px] font-semibold">
-                                Gallery
-                            </Text>
+                            <Feather name="image" size={24} color={colors.primary || '#3b82f6'}/>
+                            <Text className="text-foreground text-[15px] font-semibold">Gallery</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -471,7 +467,9 @@ export default function NewQuote() {
                         activeOpacity={0.85}
                     >
                         <Text className="text-white text-base font-bold">
-                            {photos.length > 0 || jobName ? "Suggest Template & Continue" : "Skip to Quote Builder"}
+                            {photos.length > 0 || jobName
+                                ? 'Suggest Template & Continue'
+                                : 'Skip to Quote Builder'}
                         </Text>
                         <Feather name="arrow-right" size={18} color="#fff"/>
                     </TouchableOpacity>
@@ -483,18 +481,21 @@ export default function NewQuote() {
     return (
         <KeyboardAvoidingView
             className="flex-1 bg-background"
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            <View className="flex-row items-center justify-between px-5 pb-3" style={{paddingTop: insets.top + 16}}>
-                <TouchableOpacity onPress={() => {
-                    clearNewQuote();
-                    setStep("photo");
-                }}>
-                    <Feather name="arrow-left" size={24} color={colors.foreground || "#111"}/>
+            <View
+                className="flex-row items-center justify-between px-5 pb-3"
+                style={{paddingTop: insets.top + 16}}
+            >
+                <TouchableOpacity
+                    onPress={() => {
+                        clearNewQuote();
+                        setStep('photo');
+                    }}
+                >
+                    <Feather name="arrow-left" size={24} color={colors.foreground || '#111'}/>
                 </TouchableOpacity>
-                <Text className="text-foreground text-[17px] font-bold">
-                    Quote Details
-                </Text>
+                <Text className="text-foreground text-[17px] font-bold">Quote Details</Text>
                 <TouchableOpacity onPress={handleSave} disabled={saving}>
                     <Text className="text-primary text-base font-bold">
                         {saving ? 'Saving…' : 'Save'}
@@ -514,11 +515,7 @@ export default function NewQuote() {
                                 key={i}
                                 source={{uri}}
                                 className="mr-2.5"
-                                style={{
-                                    width: 100,
-                                    height: 100,
-                                    borderRadius: 10,
-                                }}
+                                style={{width: 100, height: 100, borderRadius: 10}}
                                 contentFit="cover"
                             />
                         ))}
@@ -534,13 +531,12 @@ export default function NewQuote() {
                         value={newQuote?.job_name ?? jobName}
                         onChangeText={(value) => {
                             setJobName(value);
-                            updateNewQuote("job_name", value);
+                            updateNewQuote('job_name', value);
                         }}
                         placeholder="e.g. Faucet Replacement"
                     />
                 </View>
 
-                {/* Clients */}
                 <View className="mb-4 gap-2">
                     <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
                         Client *
@@ -552,17 +548,20 @@ export default function NewQuote() {
                                     key={c.id}
                                     className="mr-2 rounded-full border border-zinc-200 px-3.5 py-2"
                                     style={{
-                                        backgroundColor: selectedClientId === c.id ? colors.primary : colors.background,
-                                        borderColor: selectedClientId === c.id ? colors.primary : colors.border,
+                                        backgroundColor:
+                                            selectedClientId === c.id ? colors.primary : colors.background,
+                                        borderColor:
+                                            selectedClientId === c.id ? colors.primary : colors.border,
                                     }}
-                                    onPress={() => setSelectedClientId(
-                                        selectedClientId === c.id ? null : c.id
-                                    )}
+                                    onPress={() =>
+                                        setSelectedClientId(selectedClientId === c.id ? null : c.id)
+                                    }
                                 >
                                     <Text
                                         className="text-sm font-semibold"
                                         style={{
-                                            color: selectedClientId === c.id ? '#fff' : colors.foreground,
+                                            color:
+                                                selectedClientId === c.id ? '#fff' : colors.foreground,
                                         }}
                                     >
                                         {c.name}
@@ -572,13 +571,11 @@ export default function NewQuote() {
                         </ScrollView>
                     )}
 
-                    {/* Free-text client fields (always available as fallback / new client) */}
                     <TextInput
                         className="text-foreground bg-card border border-zinc-300 rounded-[12px] px-4 py-3 text-[15px] mb-2"
                         value={clientName}
                         onChangeText={(v) => {
                             setClientName(v);
-                            // Deselect chip if user types a different name
                             if (selectedClientId) {
                                 const selected = clients.find((c) => c.id === selectedClientId);
                                 if (selected && selected.name !== v) {
@@ -600,7 +597,7 @@ export default function NewQuote() {
                     {clients.length === 0 && (
                         <TouchableOpacity
                             className="mt-2 rounded-[12px] border border-dashed border-primary p-3 items-center"
-                            onPress={() => router.push("/(tabs)/clients")}
+                            onPress={() => router.push('/(tabs)/clients')}
                         >
                             <Text className="text-primary text-[15px] font-semibold">
                                 Or add a saved client
@@ -609,7 +606,6 @@ export default function NewQuote() {
                     )}
                 </View>
 
-                {/* Line Items */}
                 <View className="mb-4 gap-2">
                     <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
                         Line Items
@@ -628,7 +624,7 @@ export default function NewQuote() {
                                     });
 
                                     if (!result.canceled && result.assets && result.assets[0]) {
-                                        updateLineItem(idx, "photoUri", result.assets[0].uri);
+                                        updateLineItem(idx, 'photoUri', result.assets[0].uri);
                                     }
                                 }}
                                 className="mt-1 h-40 bg-gray-100 rounded-2xl overflow-hidden border border-dashed border-gray-400 flex items-center justify-center"
@@ -642,7 +638,9 @@ export default function NewQuote() {
                                 ) : (
                                     <View className="items-center">
                                         <Feather name="camera" size={24} color="#6b7280"/>
-                                        <Text className="text-gray-500 mt-2 text-sm">Tap to take Before Photo</Text>
+                                        <Text className="text-gray-500 mt-2 text-sm">
+                                            Tap to take Before Photo
+                                        </Text>
                                     </View>
                                 )}
                             </TouchableOpacity>
@@ -650,29 +648,31 @@ export default function NewQuote() {
                             <TextInput
                                 className="text-foreground border border-zinc-300 rounded-[8px] px-2 py-1.5 text-sm font-semibold"
                                 value={li.description}
-                                onChangeText={(v) => updateLineItem(idx, "description", v)}
+                                onChangeText={(v) => updateLineItem(idx, 'description', v)}
                                 placeholder="Description"
                             />
                             <View className="flex-row items-center gap-1.5">
                                 <TextInput
                                     className="text-foreground w-12 rounded-[8px] border border-zinc-300 px-2 py-1.5 text-center text-[13px]"
                                     value={String(li.quantity)}
-                                    onChangeText={(v) => updateLineItem(idx, "quantity", parseFloat(v) || 0)}
+                                    onChangeText={(v) =>
+                                        updateLineItem(idx, 'quantity', parseFloat(v) || 0)
+                                    }
                                     keyboardType="decimal-pad"
                                     placeholder="Qty"
                                 />
-                                <Text className="text-sm text-muted-foreground">
-                                    ×
-                                </Text>
+                                <Text className="text-sm text-muted-foreground">×</Text>
                                 <TextInput
                                     className="text-foreground flex-1 rounded-[8px] border border-zinc-300 px-2 py-1.5 text-[13px]"
                                     value={String(li.unitPrice)}
-                                    onChangeText={(v) => updateLineItem(idx, "unitPrice", parseFloat(v) || 0)}
+                                    onChangeText={(v) =>
+                                        updateLineItem(idx, 'unitPrice', parseFloat(v) || 0)
+                                    }
                                     keyboardType="decimal-pad"
                                     placeholder="Price"
                                 />
                                 <Text className="text-primary min-w-[46px] text-right text-sm font-bold">
-                                    =${((li?.quantity || 0) * (li?.unitPrice || 0)).toFixed(0)}
+                                    =${(((li?.quantity || 0) * (li?.unitPrice || 0)).toFixed(2))}
                                 </Text>
                                 <TouchableOpacity onPress={() => removeLineItem(idx)}>
                                     <Feather name="trash-2" size={16} color="#ef4444"/>
@@ -685,10 +685,8 @@ export default function NewQuote() {
                         className="flex-row items-center justify-center gap-2 rounded-[12px] border border-dashed p-3"
                         onPress={addLineItem}
                     >
-                        <Feather name="plus" size={16} color={colors.primary || "#3b82f6"}/>
-                        <Text className="text-primary text-sm font-semibold">
-                            Add Line Item
-                        </Text>
+                        <Feather name="plus" size={16} color={colors.primary || '#3b82f6'}/>
+                        <Text className="text-primary text-sm font-semibold">Add Line Item</Text>
                     </TouchableOpacity>
                 </View>
 
@@ -698,9 +696,7 @@ export default function NewQuote() {
                     </Text>
                     <TextInput
                         className="text-foreground bg-card border border-zinc-300 rounded-[12px] px-4 py-3 text-[15px] min-h-[90px]"
-                        style={{
-                            textAlignVertical: "top",
-                        }}
+                        style={{textAlignVertical: 'top'}}
                         value={notes}
                         onChangeText={setNotes}
                         placeholder="Job details, scope, special conditions..."
@@ -710,10 +706,13 @@ export default function NewQuote() {
                 </View>
 
                 <View className="bg-secondary-foreground mb-4 flex-row items-center justify-between rounded-[16px] p-5">
-                    <Text className="text-sm font-semibold" style={{color: "#94A3B8"}}>
+                    <Text className="text-sm font-semibold" style={{color: '#94A3B8'}}>
                         Quote Total
                     </Text>
-                    <Text className="text-[28px] font-extrabold tracking-[-0.5px]" style={{color: "#fff"}}>
+                    <Text
+                        className="text-[28px] font-extrabold tracking-[-0.5px]"
+                        style={{color: '#fff'}}
+                    >
                         ${total.toFixed(2)}
                     </Text>
                 </View>
@@ -739,7 +738,7 @@ export default function NewQuote() {
                     activeOpacity={0.85}
                     disabled={saving}
                 >
-                    <Feather name="share" size={18} color={colors.foreground || "#111"}/>
+                    <Feather name="share" size={18} color={colors.foreground || '#111'}/>
                     <Text className="text-foreground text-base font-bold">Generate PDF</Text>
                 </TouchableOpacity>
             </ScrollView>
