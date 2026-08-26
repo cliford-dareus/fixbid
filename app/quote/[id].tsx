@@ -3,35 +3,14 @@ import {View, Text, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Shar
 import {useLocalSearchParams, useRouter} from 'expo-router';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import {supabase} from '@/lib/supabase';
+import {useAuth} from '@/context/auth-context';
 import {useProfile} from '@/context/profile-context';
 import {useQuote} from '@/context/quote-context';
+import {jobsApi, quotesApi, type Quote} from '@/lib/data';
 import * as Clipboard from 'expo-clipboard';
 import {Feather} from '@expo/vector-icons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import useThemedNavigation from '@/hooks/use-navigation-theme';
-
-interface LineItem {
-    id: string;
-    description: string;
-    quantity: number;
-    unit_price: number;
-    is_labor: boolean;
-    photo_url?: string;
-}
-
-interface QuoteDetailType {
-    id: string;
-    client_id?: string | null;
-    client_name: string;
-    client_phone?: string;
-    job_name: string;
-    notes?: string;
-    total_amount: number;
-    status: string;
-    created_at: string;
-    line_items: LineItem[];
-}
 
 const PUBLIC_QUOTE_BASE = 'https://fixbid-ten.vercel.app';
 
@@ -40,9 +19,10 @@ const PAID_STATUSES = ['accepted', 'approved', 'deposit_paid', 'paid'];
 export default function QuoteDetail() {
     const {id} = useLocalSearchParams<{id: string}>();
     const router = useRouter();
+    const {user} = useAuth();
     const {profile} = useProfile();
     const {updateQuote, fetchJobs} = useQuote();
-    const [quote, setQuote] = useState<QuoteDetailType | null>(null);
+    const [quote, setQuote] = useState<Quote | null>(null);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const insets = useSafeAreaInsets();
@@ -52,42 +32,15 @@ export default function QuoteDetail() {
         if (!id) return;
 
         setLoading(true);
-        try {
-            const {data, error} = await supabase
-                .from('quotes')
-                .select(`
-          id,
-          client_id,
-          client_name,
-          client_phone,
-          job_name,
-          notes,
-          total_amount,
-          status,
-          created_at,
-          quote_line_items (
-            id,
-            description,
-            quantity,
-            unit_price,
-            is_labor,
-            photo_url
-          )
-        `)
-                .eq('id', id)
-                .single();
-
-            if (error) throw error;
-            setQuote({
-                ...data,
-                line_items: data.quote_line_items || [],
-            });
-        } catch (error: any) {
-            Alert.alert('Error', 'Failed to load quote details');
-            console.error(error);
-        } finally {
-            setLoading(false);
+        const result = await quotesApi.getQuote(id);
+        if (!result.ok) {
+            Alert.alert('Error', result.error || 'Failed to load quote details');
+            console.error(result.error);
+            setQuote(null);
+        } else {
+            setQuote(result.data);
         }
+        setLoading(false);
     };
 
     useEffect(() => {
@@ -101,7 +54,6 @@ export default function QuoteDetail() {
         setSending(true);
 
         try {
-            // Mark as sent so dashboard / list reflect the real state
             await updateQuote(quote.id, {status: 'sent'});
             setQuote((prev) => (prev ? {...prev, status: 'sent'} : prev));
 
@@ -114,7 +66,7 @@ export default function QuoteDetail() {
                     title: `Quote for ${quote.client_name}`,
                 });
             } catch {
-                // User dismissed share sheet — link is still on clipboard
+                // User dismissed share sheet
             }
 
             Alert.alert(
@@ -139,22 +91,16 @@ export default function QuoteDetail() {
         if (!quote) return;
 
         try {
-            const {
-                data: {user},
-            } = await supabase.auth.getUser();
-
-            if (!user) {
+            if (!user?.id) {
                 Alert.alert('Not logged in');
                 return;
             }
 
-            const {error: jobError} = await supabase.from('jobs').insert({
+            const jobResult = await jobsApi.createJob({
+                handyman_id: user.id,
                 job_name: quote.job_name,
                 client_id: quote.client_id || null,
                 client_name: quote.client_name,
-                handyman_id: user.id,
-                scheduled_date: null,
-                completed_date: null,
                 quote_id: quote.id,
                 total_amount: quote.total_amount,
                 labor_cost: 0,
@@ -163,9 +109,10 @@ export default function QuoteDetail() {
                 after_photos: [],
                 payments: [],
                 status: 'schedule',
+                notes: quote.notes || null,
             });
 
-            if (jobError) throw jobError;
+            if (!jobResult.ok) throw new Error(jobResult.error);
 
             await updateQuote(quote.id, {status: 'accepted'});
             setQuote((prev) => (prev ? {...prev, status: 'accepted'} : prev));
@@ -185,6 +132,8 @@ export default function QuoteDetail() {
 
     const regeneratePDF = async () => {
         if (!quote) return;
+
+        const lineItems = quote.quote_line_items || [];
 
         const htmlContent = `
               <html>
@@ -217,12 +166,12 @@ export default function QuoteDetail() {
                       <tr><th>Description</th><th>Qty</th><th>Price</th><th>Total</th></tr>
                     </thead>
                     <tbody>
-                      ${quote.line_items.map(item => `
+                      ${lineItems.map((item) => `
                         <tr>
                           <td>${item.description}</td>
                           <td>${item.quantity}</td>
-                          <td>$${item.unit_price}</td>
-                          <td>$${(item.quantity * item.unit_price).toFixed(2)}</td>
+                          <td>$${item.unitPrice}</td>
+                          <td>$${(item.quantity * item.unitPrice).toFixed(2)}</td>
                         </tr>
                         ${item.photo_url ? `
                           <tr><td colspan="4"><img src="${item.photo_url}" class="photo" /></td></tr>
@@ -267,6 +216,7 @@ export default function QuoteDetail() {
     const status = (quote.status || 'draft').toLowerCase();
     const isPaid = PAID_STATUSES.includes(status);
     const deposit = Math.round(Number(quote.total_amount) * 50) / 100;
+    const lineItems = quote.quote_line_items || [];
 
     return (
         <View className="flex-1 bg-background">
@@ -324,7 +274,7 @@ export default function QuoteDetail() {
                         Line Items
                     </Text>
 
-                    {quote.line_items.map((li, i) => (
+                    {lineItems.map((li, i) => (
                         <View
                             key={li.id || i}
                             className="flex-row items-start justify-between border-b border-zinc-300 py-2.5"
@@ -334,12 +284,12 @@ export default function QuoteDetail() {
                                     {li.description}
                                 </Text>
                                 <Text className="text-muted-foreground text-[12px]">
-                                    {li.quantity} × ${Number(li.unit_price).toFixed(2)}
+                                    {li.quantity} × ${Number(li.unitPrice).toFixed(2)}
                                 </Text>
                             </View>
 
                             <Text className="text-foreground text-[15px] font-bold">
-                                ${(li.quantity * li.unit_price).toFixed(2)}
+                                ${(li.quantity * li.unitPrice).toFixed(2)}
                             </Text>
                         </View>
                     ))}
