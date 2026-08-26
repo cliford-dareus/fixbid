@@ -1,61 +1,80 @@
-import React, {createContext, useContext, useEffect, useState, ReactNode} from 'react';
-import {useAuth} from "@/context/auth-context";
-import {supabase} from "@/lib/supabase";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+} from 'react';
+import {useAuth} from '@/context/auth-context';
+import {profilesApi, type Profile} from '@/lib/data';
 
-
-interface Profile {
-    full_name: string;
-    business_name: string;
-    phone: string;
-    address: string;
-    hourly_rate: number;
-    logo_url?: string;
-    stripe_account_id?: string;
-}
+export type {Profile};
 
 type ProfileContextType = {
-    profile: Profile | null;
-    loading: boolean;
-    refreshProfile: () => Promise<void>;
+  profile: Profile | null;
+  loading: boolean;
+  refreshProfile: () => Promise<void>;
+  updateProfile: (updates: Partial<Profile>) => Promise<void>;
 };
 
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 
-export function ProfileProvider({children}: { children: ReactNode }) {
-    const {user} = useAuth();
-    const [profile, setProfile] = useState<Profile | null>(null);
-    const [loading, setLoading] = useState(true);
+export function ProfileProvider({children}: {children: ReactNode}) {
+  const {user} = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
 
-    const fetchProfile = async () => {
-        if (!user) {
-            setProfile(null);
-            setLoading(false);
-            return;
-        }
+  const refreshProfile = useCallback(async () => {
+    if (!user?.id) {
+      setProfile(null);
+      setLoading(false);
+      return;
+    }
 
-        const {data, error} = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+    setLoading(true);
+    const result = await profilesApi.getProfile(user.id);
+    if (result.ok) {
+      setProfile(result.data);
+    } else {
+      console.error(result.error);
+      setProfile(null);
+    }
+    setLoading(false);
+  }, [user?.id]);
 
-        if (data) setProfile(data);
-        setLoading(false);
-    };
+  const updateProfile = useCallback(
+    async (updates: Partial<Profile>) => {
+      if (!user?.id) throw new Error('Not logged in');
 
-    useEffect(() => {
-        fetchProfile();
-    }, [user]);
+      const prev = profile;
+      setProfile((p) => (p ? {...p, ...updates} : p));
 
-    return (
-        <ProfileContext.Provider value={{profile, loading, refreshProfile: fetchProfile}}>
-            {children}
-        </ProfileContext.Provider>
-    );
+      const result = await profilesApi.updateProfile(user.id, updates);
+      if (!result.ok) {
+        setProfile(prev);
+        throw new Error(result.error);
+      }
+      setProfile(result.data);
+    },
+    [user?.id, profile],
+  );
+
+  useEffect(() => {
+    refreshProfile();
+  }, [refreshProfile]);
+
+  return (
+    <ProfileContext.Provider
+      value={{profile, loading, refreshProfile, updateProfile}}
+    >
+      {children}
+    </ProfileContext.Provider>
+  );
 }
 
 export const useProfile = () => {
-    const context = useContext(ProfileContext);
-    if (!context) throw new Error('useProfile must be used within ProfileProvider');
-    return context;
+  const context = useContext(ProfileContext);
+  if (!context) throw new Error('useProfile must be used within ProfileProvider');
+  return context;
 };
