@@ -15,6 +15,7 @@
  */
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { serviceClient } from "../_shared/supabase.ts";
+import { notifyHandymanPush } from "../_shared/expo-push.ts";
 
 const PAID = new Set(["accepted", "approved", "deposit_paid", "paid"]);
 
@@ -61,12 +62,11 @@ Deno.serve(async (req) => {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        await handleCheckoutCompleted(session, stripe);
+        await handleCheckoutCompleted(session);
         break;
       }
       case "payment_intent.succeeded": {
         const pi = event.data.object as Stripe.PaymentIntent;
-        // In-app PaymentSheet path may only fire this event
         await handlePaymentIntentSucceeded(pi);
         break;
       }
@@ -80,7 +80,6 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("Webhook handler error", err);
-    // Return 500 so Stripe retries
     return new Response(
       err instanceof Error ? err.message : "Handler error",
       { status: 500 },
@@ -88,10 +87,7 @@ Deno.serve(async (req) => {
   }
 });
 
-async function handleCheckoutCompleted(
-  session: Stripe.Checkout.Session,
-  stripe: Stripe,
-) {
+async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (session.payment_status !== "paid" && session.status !== "complete") {
     console.log("Session not paid yet", session.id, session.payment_status);
     return;
@@ -131,7 +127,6 @@ async function handleCheckoutCompleted(
 async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
   const quoteId = pi.metadata?.quote_id;
   if (!quoteId) {
-    // Checkout path usually handles via session; PI without metadata is a no-op
     console.log("payment_intent.succeeded without quote_id", pi.id);
     return;
   }
@@ -155,9 +150,6 @@ interface SettleArgs {
   source: string;
 }
 
-/**
- * Idempotent: safe if Stripe retries the same event.
- */
 async function settleQuotePayment(args: SettleArgs) {
   const supabase = serviceClient();
   const {
@@ -181,10 +173,8 @@ async function settleQuotePayment(args: SettleArgs) {
     throw new Error(`Quote not found: ${quoteId}`);
   }
 
-  // Idempotency: if already accepted/paid, still ensure payment row exists, skip job duplicate
   const alreadyPaid = PAID.has((quote.status || "").toLowerCase());
 
-  // Prefer unique constraint on stripe_payment_intent_id or stripe_session_id if you add a payments table
   if (stripePaymentIntentId) {
     const { data: existing } = await supabase
       .from("payments")
@@ -203,7 +193,6 @@ async function settleQuotePayment(args: SettleArgs) {
     }
   }
 
-  // Record payment (table optional — fails soft if migrations not applied yet)
   const paymentRow = {
     quote_id: quoteId,
     handyman_id: quote.handyman_id,
@@ -220,7 +209,6 @@ async function settleQuotePayment(args: SettleArgs) {
 
   const { error: payErr } = await supabase.from("payments").insert(paymentRow);
   if (payErr) {
-    // If payments table missing, log and continue — quote status still updates
     console.warn("payments insert skipped/failed:", payErr.message);
   }
 
@@ -232,7 +220,6 @@ async function settleQuotePayment(args: SettleArgs) {
     if (statusErr) throw statusErr;
   }
 
-  // Create job once
   const { data: existingJob } = await supabase
     .from("jobs")
     .select("id")
@@ -266,8 +253,24 @@ async function settleQuotePayment(args: SettleArgs) {
     });
     if (jobErr) {
       console.error("job create failed", jobErr);
-      // Don't fail webhook forever if unique constraint races — log only
     }
+  }
+
+  // Push only on first successful settlement (not Stripe retries of same PI)
+  if (!alreadyPaid) {
+    const client = quote.client_name || "A client";
+    const job = quote.job_name || "quote";
+    const amt = Number(amountDollars).toLocaleString(undefined, {
+      style: "currency",
+      currency: "USD",
+    });
+    await notifyHandymanPush(
+      supabase,
+      quote.handyman_id,
+      "Deposit received",
+      `${client} paid ${amt} on “${job}”.`,
+      { quoteId, type: "deposit_paid", status: "accepted" },
+    );
   }
 
   console.log(`Settled quote ${quoteId} via ${source} amount=${amountDollars}`);
