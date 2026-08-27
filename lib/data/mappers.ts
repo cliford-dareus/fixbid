@@ -95,6 +95,7 @@ export function mapProfileRow(row: Row): Profile {
     default_tax_rate: row.default_tax_rate != null
       ? Number(row.default_tax_rate)
       : undefined,
+    expo_push_token: row.expo_push_token ?? null,
   };
 }
 
@@ -166,5 +167,6 @@ export function profileUpdatesToDb(updates: Partial<Profile>): Record<string, un
     db.default_material_markup = updates.default_material_markup;
   }
   if (updates.default_tax_rate !== undefined) db.default_tax_rate = updates.default_tax_rate;
+  if (updates.expo_push_token !== undefined) db.expo_push_token = updates.expo_push_token;
   return db;
 }
