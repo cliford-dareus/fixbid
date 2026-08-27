@@ -86,16 +86,27 @@ export interface Job {
   created_at: string;
 }
 
+/** Business profile — drives PDF headers and public quote page. */
 export interface Profile {
   id?: string;
   full_name: string;
   business_name: string;
   phone: string;
+  email?: string;
   address: string;
+  city?: string;
+  state?: string;
+  zip?: string;
   hourly_rate: number;
   logo_url?: string;
   stripe_account_id?: string;
-  email?: string;
+  tagline?: string;
+  website?: string;
+  license_number?: string;
+  insurance_info?: string;
+  payment_note?: string;
+  default_material_markup?: number;
+  default_tax_rate?: number;
 }
 
 export interface CreateClientInput {
