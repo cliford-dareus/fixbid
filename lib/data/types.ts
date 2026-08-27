@@ -107,6 +107,8 @@ export interface Profile {
   payment_note?: string;
   default_material_markup?: number;
   default_tax_rate?: number;
+  /** Expo push token for offline notifications */
+  expo_push_token?: string | null;
 }
 
 export interface CreateClientInput {
