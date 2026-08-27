@@ -3,7 +3,7 @@
  * POST /functions/v1/public-quote  { quote_id, action: "decline" }
  *
  * Public read of a quote for the Vercel client page.
- * Decline sets status = declined (no auth — anyone with the link can decline).
+ * Handyman block is loaded from profiles (drives header / contact).
  */
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
@@ -95,10 +95,35 @@ Deno.serve(async (req) => {
     if (quote.handyman_id) {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("full_name, business_name, phone, email")
+        .select(
+          "full_name, business_name, phone, email, address, city, state, zip, logo_url, tagline, license_number, website",
+        )
         .eq("id", quote.handyman_id)
         .maybeSingle();
-      handyman = profile ?? {};
+
+      if (profile) {
+        const locationParts = [
+          profile.address,
+          [profile.city, profile.state].filter(Boolean).join(", "),
+          profile.zip,
+        ].filter((p) => p && String(p).trim());
+
+        handyman = {
+          full_name: profile.full_name,
+          business_name: profile.business_name,
+          phone: profile.phone,
+          email: profile.email,
+          address: profile.address,
+          city: profile.city,
+          state: profile.state,
+          zip: profile.zip,
+          location: locationParts.join(" · "),
+          logo_url: profile.logo_url,
+          tagline: profile.tagline,
+          license_number: profile.license_number,
+          website: profile.website,
+        };
+      }
     }
 
     const line_items = quote.quote_line_items ?? [];
