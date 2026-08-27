@@ -3,10 +3,14 @@
  * POST /functions/v1/public-quote  { quote_id, action: "decline" }
  *
  * Public read of a quote for the Vercel client page.
- * Handyman block is loaded from profiles (drives header / contact).
+ * Uses service role; does not depend on optional columns that may be missing.
  */
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
+
+/** Columns that match the app's create/list path (lib/data/quotes.ts). */
+const QUOTE_CORE =
+  "id, client_id, client_name, client_phone, job_name, notes, total_amount, status, created_at, photos, handyman_id";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -29,9 +33,13 @@ Deno.serve(async (req) => {
         .from("quotes")
         .select("id, status")
         .eq("id", quoteId)
-        .single();
+        .maybeSingle();
 
-      if (error || !quote) {
+      if (error) {
+        console.error("public-quote decline select", error);
+        return jsonResponse({ error: "Quote not found", detail: error.message }, 404);
+      }
+      if (!quote) {
         return jsonResponse({ error: "Quote not found" }, 404);
       }
 
@@ -55,78 +63,54 @@ Deno.serve(async (req) => {
     }
 
     const url = new URL(req.url);
-    const id = url.searchParams.get("id");
+    const id = (url.searchParams.get("id") || "").trim();
     if (!id) {
       return jsonResponse({ success: false, error: "id required" }, 400);
     }
 
-    const { data: quote, error } = await supabase
+    // 1) Core quote row only — avoid optional columns (client_email, address, …)
+    //    that break the whole query when missing from the schema.
+    const { data: quote, error: quoteError } = await supabase
       .from("quotes")
-      .select(`
-        id,
-        client_name,
-        client_phone,
-        client_email,
-        job_name,
-        notes,
-        total_amount,
-        status,
-        created_at,
-        handyman_id,
-        project_address,
-        address,
-        quote_line_items (
-          id,
-          description,
-          quantity,
-          unit_price,
-          is_labor,
-          photo_url
-        )
-      `)
+      .select(QUOTE_CORE)
       .eq("id", id)
-      .single();
+      .maybeSingle();
 
-    if (error || !quote) {
+    if (quoteError) {
+      console.error("public-quote select", quoteError);
+      return jsonResponse(
+        {
+          success: false,
+          error: "Quote not found",
+          detail: quoteError.message,
+        },
+        404,
+      );
+    }
+
+    if (!quote) {
       return jsonResponse({ success: false, error: "Quote not found" }, 404);
     }
 
-    let handyman: Record<string, unknown> = {};
-    if (quote.handyman_id) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select(
-          "full_name, business_name, phone, email, address, city, state, zip, logo_url, tagline, license_number, website",
-        )
-        .eq("id", quote.handyman_id)
-        .maybeSingle();
+    // 2) Line items (separate query so a bad FK name does not hide the quote)
+    let line_items: Array<Record<string, unknown>> = [];
+    const { data: items, error: itemsError } = await supabase
+      .from("quote_line_items")
+      .select("id, description, quantity, unit_price, is_labor, photo_url")
+      .eq("quote_id", id)
+      .order("id", { ascending: true });
 
-      if (profile) {
-        const locationParts = [
-          profile.address,
-          [profile.city, profile.state].filter(Boolean).join(", "),
-          profile.zip,
-        ].filter((p) => p && String(p).trim());
-
-        handyman = {
-          full_name: profile.full_name,
-          business_name: profile.business_name,
-          phone: profile.phone,
-          email: profile.email,
-          address: profile.address,
-          city: profile.city,
-          state: profile.state,
-          zip: profile.zip,
-          location: locationParts.join(" · "),
-          logo_url: profile.logo_url,
-          tagline: profile.tagline,
-          license_number: profile.license_number,
-          website: profile.website,
-        };
-      }
+    if (itemsError) {
+      console.warn("public-quote line_items", itemsError.message);
+    } else {
+      line_items = items ?? [];
     }
 
-    const line_items = quote.quote_line_items ?? [];
+    // 3) Handyman branding — try full profile, fall back to core columns
+    let handyman: Record<string, unknown> = {};
+    if (quote.handyman_id) {
+      handyman = await loadHandyman(supabase, quote.handyman_id as string);
+    }
 
     return jsonResponse({
       success: true,
@@ -134,16 +118,15 @@ Deno.serve(async (req) => {
         id: quote.id,
         client_name: quote.client_name,
         client_phone: quote.client_phone,
-        client_email: quote.client_email,
+        client_email: null,
         job_name: quote.job_name,
         notes: quote.notes,
         total_amount: quote.total_amount,
         status: quote.status,
         created_at: quote.created_at,
         handyman_id: quote.handyman_id,
-        project_address: (quote as { project_address?: string }).project_address ??
-          (quote as { address?: string }).address ??
-          null,
+        photos: quote.photos ?? [],
+        project_address: null,
         line_items,
       },
       handyman,
@@ -151,8 +134,68 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.error("public-quote", err);
     return jsonResponse(
-      { success: false, error: err instanceof Error ? err.message : "Error" },
+      {
+        success: false,
+        error: err instanceof Error ? err.message : "Error",
+      },
       500,
     );
   }
 });
+
+// deno-lint-ignore no-explicit-any
+async function loadHandyman(supabase: any, handymanId: string) {
+  const full =
+    "full_name, business_name, phone, email, address, city, state, zip, logo_url, tagline, license_number, website";
+  const core = "full_name, business_name, phone, email, address, logo_url";
+
+  let profile: Record<string, unknown> | null = null;
+
+  const attempt = await supabase
+    .from("profiles")
+    .select(full)
+    .eq("id", handymanId)
+    .maybeSingle();
+
+  if (!attempt.error && attempt.data) {
+    profile = attempt.data;
+  } else {
+    if (attempt.error) {
+      console.warn("public-quote profile full select", attempt.error.message);
+    }
+    const fallback = await supabase
+      .from("profiles")
+      .select(core)
+      .eq("id", handymanId)
+      .maybeSingle();
+    if (!fallback.error && fallback.data) {
+      profile = fallback.data;
+    } else if (fallback.error) {
+      console.warn("public-quote profile core select", fallback.error.message);
+    }
+  }
+
+  if (!profile) return {};
+
+  const locationParts = [
+    profile.address,
+    [profile.city, profile.state].filter(Boolean).join(", "),
+    profile.zip,
+  ].filter((p) => p && String(p).trim());
+
+  return {
+    full_name: profile.full_name ?? "",
+    business_name: profile.business_name ?? "",
+    phone: profile.phone ?? "",
+    email: profile.email ?? "",
+    address: profile.address ?? "",
+    city: profile.city ?? "",
+    state: profile.state ?? "",
+    zip: profile.zip ?? "",
+    location: locationParts.join(" · "),
+    logo_url: profile.logo_url ?? null,
+    tagline: profile.tagline ?? "",
+    license_number: profile.license_number ?? "",
+    website: profile.website ?? "",
+  };
+}
