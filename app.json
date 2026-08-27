@@ -7,9 +7,11 @@
     "icon": "./assets/images/icon.png",
     "scheme": "fixbid",
     "userInterfaceStyle": "automatic",
-//    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,8 +20,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-//      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -51,6 +53,13 @@
           "merchantIdentifier": "merchant.com.yourcompany.yourapp",
           "enableGooglePay": true,
           "enableApplePay": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#f97316",
+          "defaultChannel": "quotes"
         }
       ],
       "expo-web-browser",
