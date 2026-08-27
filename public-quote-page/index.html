@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quote - FixBid</title>
+    <title>Quote</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,6 +12,7 @@
     <style>
         body { font-family: Inter, system-ui, -apple-system, sans-serif; }
         .hammer-icon { font-size: 2rem; }
+        #contractor-logo { max-height: 56px; max-width: 56px; object-fit: contain; border-radius: 12px; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen py-8">
@@ -19,15 +20,19 @@
     <div class="pt-8 pb-6 border-b">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div class="flex items-center gap-4">
-                <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-600 text-white shadow-lg">
-                    <i class="fa-solid fa-hammer hammer-icon"></i>
+                <div id="contractor-avatar" class="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-600 text-white shadow-lg overflow-hidden shrink-0">
+                    <img id="contractor-logo" class="hidden" alt="" />
+                    <i id="contractor-icon" class="fa-solid fa-hammer hammer-icon"></i>
                 </div>
                 <div>
                     <h1 id="contractor-name" class="text-3xl font-bold text-slate-900"></h1>
-                    <div class="mt-2 flex flex-wrap gap-x-6 text-sm text-slate-600">
+                    <p id="contractor-tagline" class="text-sm text-slate-500 mt-0.5 hidden"></p>
+                    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600">
                         <span id="contractor-phone" class="flex items-center gap-1.5"></span>
                         <span id="contractor-email" class="flex items-center gap-1.5"></span>
+                        <span id="contractor-location" class="flex items-center gap-1.5"></span>
                     </div>
+                    <p id="contractor-license" class="text-xs text-slate-400 mt-1 hidden"></p>
                 </div>
             </div>
             <div class="flex flex-col items-end gap-2">
@@ -59,7 +64,7 @@
 
         <div class="h-3 bg-slate-50 w-full"></div>
 
-        <div class="px-8 pb-8">
+        <div class="px-8 pb-8 overflow-x-auto">
             <table class="w-full">
                 <thead>
                 <tr class="border-b-2 border-slate-200">
@@ -130,17 +135,6 @@
     const urlParams = new URLSearchParams(window.location.search);
     const quoteId = urlParams.get('id');
 
-    /** Escape text for safe use inside HTML text nodes / attributes via textContent patterns */
-    function escapeHtml(str) {
-        if (str == null) return '';
-        return String(str)
-            .replace(/&/g, '&')
-            .replace(/</g, '<')
-            .replace(/>/g, '>')
-            .replace(/"/g, '"')
-            .replace(/'/g, '&#39;');
-    }
-
     function formatMoney(n) {
         const num = Number(n) || 0;
         return '$' + num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -151,17 +145,70 @@
         if (el) el.textContent = value == null ? '' : String(value);
     }
 
-    function setHtmlSafeIconText(id, iconClass, text) {
+    function setIconRow(id, iconClass, text) {
         const el = document.getElementById(id);
         if (!el) return;
         el.innerHTML = '';
+        if (!text) {
+            el.classList.add('hidden');
+            return;
+        }
+        el.classList.remove('hidden');
         if (iconClass) {
             const icon = document.createElement('i');
             icon.className = iconClass;
             el.appendChild(icon);
             el.appendChild(document.createTextNode(' '));
         }
-        el.appendChild(document.createTextNode(text || ''));
+        el.appendChild(document.createTextNode(text));
+    }
+
+    function applyHandymanBranding(h) {
+        const name = (h.business_name || h.full_name || 'Professional Handyman').trim();
+        setText('contractor-name', name);
+        document.title = name + ' — Quote';
+
+        const tagline = (h.tagline || '').trim();
+        const tagEl = document.getElementById('contractor-tagline');
+        if (tagEl) {
+            if (tagline) {
+                tagEl.textContent = tagline;
+                tagEl.classList.remove('hidden');
+            } else {
+                tagEl.classList.add('hidden');
+            }
+        }
+
+        setIconRow('contractor-phone', 'fa-solid fa-phone', (h.phone || '').trim());
+        setIconRow('contractor-email', 'fa-solid fa-envelope', (h.email || '').trim());
+
+        const loc = (h.location || [h.address, [h.city, h.state].filter(Boolean).join(', '), h.zip]
+            .filter(function (p) { return p && String(p).trim(); }).join(' · ')).trim();
+        setIconRow('contractor-location', 'fa-solid fa-location-dot', loc);
+
+        const lic = (h.license_number || '').trim();
+        const licEl = document.getElementById('contractor-license');
+        if (licEl) {
+            if (lic) {
+                licEl.textContent = 'License #' + lic;
+                licEl.classList.remove('hidden');
+            } else {
+                licEl.classList.add('hidden');
+            }
+        }
+
+        const logoUrl = (h.logo_url || '').trim();
+        const logoImg = document.getElementById('contractor-logo');
+        const iconEl = document.getElementById('contractor-icon');
+        if (logoUrl && logoImg) {
+            logoImg.src = logoUrl;
+            logoImg.alt = name;
+            logoImg.classList.remove('hidden');
+            if (iconEl) iconEl.classList.add('hidden');
+        } else {
+            if (logoImg) logoImg.classList.add('hidden');
+            if (iconEl) iconEl.classList.remove('hidden');
+        }
     }
 
     const PAID_STATUSES = ['accepted', 'approved', 'deposit_paid', 'paid'];
@@ -192,19 +239,17 @@
     }
 
     function renderQuote(q, h) {
+        applyHandymanBranding(h || {});
+
         const lineItems = q.line_items || q.quote_line_items || [];
         const total = Number(q.total_amount) || lineItems.reduce(function (acc, item) {
             return acc + (Number(item.unit_price) * Number(item.quantity));
         }, 0);
-        const deposit = Math.round(total * 50) / 100; // 50%, keep cents
+        const deposit = Math.round(total * 50) / 100;
         const balance = Math.round((total - deposit) * 100) / 100;
         const status = (q.status || 'sent').toLowerCase();
         const isPaid = PAID_STATUSES.indexOf(status) !== -1;
         const isDeclined = DECLINED_STATUSES.indexOf(status) !== -1;
-
-        setText('contractor-name', h.business_name || h.full_name || 'Handyman');
-        setHtmlSafeIconText('contractor-phone', 'fa-solid fa-phone', h.phone || '');
-        setHtmlSafeIconText('contractor-email', 'fa-solid fa-envelope', h.email || '');
 
         setText('quote-id', (q.id || '').slice(0, 8));
         setText('issued-date', 'Issued on ' + new Date(q.created_at).toLocaleDateString('en-US', {
@@ -230,7 +275,7 @@
         setText('client-phone', q.client_phone || '');
         setText('client-email', q.client_email || '');
         setText('job-name', q.job_name || 'Service quote');
-        setHtmlSafeIconText('project-address', 'fa-solid fa-location-dot', q.project_address || q.address || '');
+        setIconRow('project-address', 'fa-solid fa-location-dot', q.project_address || q.address || '');
 
         const tbody = document.getElementById('line-items');
         tbody.innerHTML = '';
@@ -239,12 +284,7 @@
             tr.className = 'hover:bg-slate-50';
             const qty = Number(item.quantity) || 0;
             const price = Number(item.unit_price) || 0;
-            const cells = [
-                item.description || '',
-                String(qty),
-                formatMoney(price),
-                formatMoney(price * qty)
-            ];
+            const cells = [item.description || '', String(qty), formatMoney(price), formatMoney(price * qty)];
             const aligns = ['text-left', 'text-center', 'text-right', 'text-right font-semibold'];
             cells.forEach(function (val, i) {
                 const td = document.createElement('td');
@@ -266,11 +306,12 @@
         setText('balance-amount', formatMoney(balance));
         setText('quote_note', q.notes || 'No notes provided');
 
+        const contractorLabel = (h.business_name || h.full_name || 'your contractor').trim();
         const totalBtn = document.getElementById('total_btn');
         totalBtn.innerHTML = '';
 
         if (isPaid) {
-            setText('footer-message', 'Thank you — your deposit was received. The contractor will contact you to schedule the work.');
+            setText('footer-message', 'Thank you — your deposit was received. ' + contractorLabel + ' will contact you to schedule the work.');
             const done = document.createElement('div');
             done.className = 'flex items-center gap-2 text-green-700 font-semibold';
             done.innerHTML = '<i class="fa-solid fa-circle-check"></i> Deposit received';
@@ -279,7 +320,7 @@
         }
 
         if (isDeclined) {
-            setText('footer-message', 'This quote was declined. Contact the contractor if you would like a revised quote.');
+            setText('footer-message', 'This quote was declined. Contact ' + contractorLabel + ' if you would like a revised quote.');
             return;
         }
 
@@ -308,12 +349,10 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     quote_id: id,
-                    // Server should recompute; client sends 50% as a hint only
                     deposit_amount: depositAmount,
                     client_name: clientName,
                 }),
             });
-
             const data = await res.json();
             if (data.error) throw new Error(data.error);
             if (data.url) {
@@ -335,15 +374,13 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ quote_id: id, action: 'decline' }),
             });
-            // Prefer dedicated endpoint if available; fall back to local UI update
             let ok = res.ok;
             try {
                 const data = await res.json();
                 if (data && data.error) ok = false;
-            } catch (_) { /* non-JSON is fine */ }
+            } catch (_) {}
 
             if (!ok) {
-                // Fallback: try update-status style path used by some backends
                 await fetch(SUPABASE_FUNCTIONS + '/update-quote-status', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
