@@ -76,11 +76,25 @@ export function mapProfileRow(row: Row): Profile {
     full_name: row.full_name ?? '',
     business_name: row.business_name ?? '',
     phone: row.phone ?? '',
+    email: row.email ?? '',
     address: row.address ?? '',
+    city: row.city ?? '',
+    state: row.state ?? '',
+    zip: row.zip ?? '',
     hourly_rate: Number(row.hourly_rate) || 0,
     logo_url: row.logo_url,
     stripe_account_id: row.stripe_account_id,
-    email: row.email,
+    tagline: row.tagline ?? '',
+    website: row.website ?? '',
+    license_number: row.license_number ?? '',
+    insurance_info: row.insurance_info ?? '',
+    payment_note: row.payment_note ?? '',
+    default_material_markup: row.default_material_markup != null
+      ? Number(row.default_material_markup)
+      : undefined,
+    default_tax_rate: row.default_tax_rate != null
+      ? Number(row.default_tax_rate)
+      : undefined,
   };
 }
 
@@ -127,5 +141,30 @@ export function jobUpdatesToDb(updates: Partial<Job>): Record<string, unknown> {
   if (updates.payments !== undefined) db.payments = updates.payments;
   if (updates.before_photos !== undefined) db.before_photos = updates.before_photos;
   if (updates.after_photos !== undefined) db.after_photos = updates.after_photos;
+  return db;
+}
+
+export function profileUpdatesToDb(updates: Partial<Profile>): Record<string, unknown> {
+  const db: Record<string, unknown> = {};
+  if (updates.full_name !== undefined) db.full_name = updates.full_name;
+  if (updates.business_name !== undefined) db.business_name = updates.business_name;
+  if (updates.phone !== undefined) db.phone = updates.phone;
+  if (updates.email !== undefined) db.email = updates.email;
+  if (updates.address !== undefined) db.address = updates.address;
+  if (updates.city !== undefined) db.city = updates.city;
+  if (updates.state !== undefined) db.state = updates.state;
+  if (updates.zip !== undefined) db.zip = updates.zip;
+  if (updates.hourly_rate !== undefined) db.hourly_rate = updates.hourly_rate;
+  if (updates.logo_url !== undefined) db.logo_url = updates.logo_url;
+  if (updates.stripe_account_id !== undefined) db.stripe_account_id = updates.stripe_account_id;
+  if (updates.tagline !== undefined) db.tagline = updates.tagline;
+  if (updates.website !== undefined) db.website = updates.website;
+  if (updates.license_number !== undefined) db.license_number = updates.license_number;
+  if (updates.insurance_info !== undefined) db.insurance_info = updates.insurance_info;
+  if (updates.payment_note !== undefined) db.payment_note = updates.payment_note;
+  if (updates.default_material_markup !== undefined) {
+    db.default_material_markup = updates.default_material_markup;
+  }
+  if (updates.default_tax_rate !== undefined) db.default_tax_rate = updates.default_tax_rate;
   return db;
 }
