@@ -4,10 +4,13 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 import {Alert} from 'react-native';
 import {useAuth} from '@/context/auth-context';
+import {supabase} from '@/lib/supabase';
+import {notifyLocal} from '@/lib/notification';
 import {
   clientsApi,
   jobsApi,
@@ -23,6 +26,14 @@ import {
 
 // Re-export domain types so existing `import { Quote } from '@/context/quote-context'` keeps working
 export type {Client, DraftLineItem, Job, LineItem, Payment, Quote};
+
+const NOTIFY_STATUSES = new Set([
+  'declined',
+  'deposit_paid',
+  'accepted',
+  'approved',
+  'paid',
+]);
 
 type QuoteContextType = {
   quotes: Quote[];
@@ -61,6 +72,46 @@ type QuoteContextType = {
 
 const QuoteContext = createContext<QuoteContextType | undefined>(undefined);
 
+function statusMessage(row: {
+  status?: string;
+  job_name?: string;
+  client_name?: string;
+  total_amount?: number;
+}): {title: string; body: string} | null {
+  const status = (row.status || '').toLowerCase();
+  if (!NOTIFY_STATUSES.has(status)) return null;
+
+  const job = row.job_name?.trim() || 'Quote';
+  const client = row.client_name?.trim() || 'Client';
+  const amount =
+    row.total_amount != null
+      ? `$${Number(row.total_amount).toLocaleString(undefined, {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        })}`
+      : '';
+
+  if (status === 'declined') {
+    return {
+      title: 'Quote declined',
+      body: `${client} declined “${job}”${amount ? ` (${amount})` : ''}.`,
+    };
+  }
+
+  if (status === 'deposit_paid' || status === 'paid') {
+    return {
+      title: status === 'paid' ? 'Quote paid' : 'Deposit received',
+      body: `${client} paid on “${job}”${amount ? ` · ${amount}` : ''}.`,
+    };
+  }
+
+  // accepted / approved
+  return {
+    title: 'Quote accepted',
+    body: `${client} accepted “${job}”${amount ? ` · ${amount}` : ''}.`,
+  };
+}
+
 export function QuoteProvider({children}: {children: ReactNode}) {
   const {user} = useAuth();
   const [newQuote, setNewQuote] = useState<Quote | null>(null);
@@ -69,6 +120,9 @@ export function QuoteProvider({children}: {children: ReactNode}) {
   const [clients, setClients] = useState<Client[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+
+  /** Avoid spamming alerts for the same id+status (e.g. refetch echo). */
+  const notifiedRef = useRef<Set<string>>(new Set());
 
   const fetchClients = useCallback(async () => {
     if (!user?.id) return;
@@ -118,10 +172,87 @@ export function QuoteProvider({children}: {children: ReactNode}) {
       setClients([]);
       setQuotes([]);
       setJobs([]);
+      notifiedRef.current.clear();
       return;
     }
     refreshAll();
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Realtime: quote paid / declined ──────────────────────────────────────
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`quotes-handyman-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'quotes',
+          filter: `handyman_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const next = payload.new as Partial<Quote> & {id: string; status?: string};
+          const prev = payload.old as Partial<Quote> | undefined;
+          if (!next?.id) return;
+
+          const nextStatus = (next.status || '').toLowerCase();
+          const prevStatus = (prev?.status || '').toLowerCase();
+
+          // Merge into list optimistically
+          setQuotes((list) => {
+            const idx = list.findIndex((q) => q.id === next.id);
+            if (idx === -1) {
+              // Unknown row — full refresh keeps line items correct
+              fetchQuotes().catch(() => {});
+              return list;
+            }
+            const merged = {...list[idx], ...next} as Quote;
+            const copy = list.slice();
+            copy[idx] = merged;
+            return copy;
+          });
+
+          if (prevStatus === nextStatus) return;
+          if (!NOTIFY_STATUSES.has(nextStatus)) return;
+
+          const dedupeKey = `${next.id}:${nextStatus}`;
+          if (notifiedRef.current.has(dedupeKey)) return;
+          notifiedRef.current.add(dedupeKey);
+
+          const msg = statusMessage({
+            status: next.status,
+            job_name: next.job_name,
+            client_name: next.client_name,
+            total_amount: next.total_amount,
+          });
+          if (!msg) return;
+
+          notifyLocal(msg.title, msg.body, {
+            quoteId: next.id,
+            status: nextStatus,
+          }).catch(() => {});
+
+          Alert.alert(msg.title, msg.body);
+
+          // Paid/accepted often creates a job via webhook — refresh jobs
+          if (['deposit_paid', 'accepted', 'approved', 'paid'].includes(nextStatus)) {
+            fetchJobs().catch(() => {});
+          }
+        },
+      )
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('Quotes realtime channel error — is Realtime enabled on quotes?');
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, fetchQuotes, fetchJobs]);
 
   // ── Draft quote builder (UI-only) ────────────────────────────────────────
 
