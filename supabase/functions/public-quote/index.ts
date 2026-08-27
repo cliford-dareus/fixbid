@@ -7,6 +7,7 @@
  */
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
+import { notifyHandymanPush } from "../_shared/expo-push.ts";
 
 /** Columns that match the app's create/list path (lib/data/quotes.ts). */
 const QUOTE_CORE =
@@ -31,7 +32,7 @@ Deno.serve(async (req) => {
 
       const { data: quote, error } = await supabase
         .from("quotes")
-        .select("id, status")
+        .select("id, status, client_name, job_name, handyman_id, total_amount")
         .eq("id", quoteId)
         .maybeSingle();
 
@@ -55,6 +56,16 @@ Deno.serve(async (req) => {
 
       if (upErr) throw upErr;
 
+      const client = quote.client_name || "A client";
+      const job = quote.job_name || "quote";
+      await notifyHandymanPush(
+        supabase,
+        quote.handyman_id,
+        "Quote declined",
+        `${client} declined “${job}”.`,
+        { quoteId, type: "declined", status: "declined" },
+      );
+
       return jsonResponse({ success: true, status: "declined" });
     }
 
@@ -68,8 +79,6 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, error: "id required" }, 400);
     }
 
-    // 1) Core quote row only — avoid optional columns (client_email, address, …)
-    //    that break the whole query when missing from the schema.
     const { data: quote, error: quoteError } = await supabase
       .from("quotes")
       .select(QUOTE_CORE)
@@ -92,7 +101,6 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, error: "Quote not found" }, 404);
     }
 
-    // 2) Line items (separate query so a bad FK name does not hide the quote)
     let line_items: Array<Record<string, unknown>> = [];
     const { data: items, error: itemsError } = await supabase
       .from("quote_line_items")
@@ -106,7 +114,6 @@ Deno.serve(async (req) => {
       line_items = items ?? [];
     }
 
-    // 3) Handyman branding — try full profile, fall back to core columns
     let handyman: Record<string, unknown> = {};
     if (quote.handyman_id) {
       handyman = await loadHandyman(supabase, quote.handyman_id as string);
