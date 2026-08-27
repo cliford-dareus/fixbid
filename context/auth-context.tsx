@@ -1,7 +1,8 @@
-import {useRouter, useSegments} from "expo-router";
+import {useRouter} from "expo-router";
 import React, {createContext, useContext, useEffect, useState} from "react";
 import {Session, User} from '@supabase/supabase-js';
 import {supabase} from "@/lib/supabase";
+import {clearPushTokenForUser} from "@/lib/notification";
 
 type AuthContextType = {
     user: User | null;
@@ -51,6 +52,10 @@ export const AuthProvider = ({children}: { children: React.ReactNode }) => {
 
     const signOut = async () => {
         setLoading(true);
+        const uid = user?.id;
+        if (uid) {
+            await clearPushTokenForUser(uid).catch(() => {});
+        }
         const {error} = await supabase.auth.signOut();
         router.replace('/(auth)/sign-in');
         if (error) throw error;
