@@ -1,5 +1,5 @@
 import {supabase} from '@/lib/supabase';
-import {mapProfileRow} from './mappers';
+import {mapProfileRow, profileUpdatesToDb} from './mappers';
 import {err, ok, type Result} from './result';
 import type {Profile} from './types';
 
@@ -19,26 +19,21 @@ export async function getProfile(userId: string): Promise<Result<Profile | null>
   }
 }
 
+/**
+ * Update (or insert) the handyman profile row.
+ * Uses upsert so first-time setup works when no row exists yet.
+ */
 export async function updateProfile(
   userId: string,
   updates: Partial<Profile>,
 ): Promise<Result<Profile>> {
   try {
-    const db: Record<string, unknown> = {};
-    if (updates.full_name !== undefined) db.full_name = updates.full_name;
-    if (updates.business_name !== undefined) db.business_name = updates.business_name;
-    if (updates.phone !== undefined) db.phone = updates.phone;
-    if (updates.address !== undefined) db.address = updates.address;
-    if (updates.hourly_rate !== undefined) db.hourly_rate = updates.hourly_rate;
-    if (updates.logo_url !== undefined) db.logo_url = updates.logo_url;
-    if (updates.stripe_account_id !== undefined) {
-      db.stripe_account_id = updates.stripe_account_id;
-    }
+    const db = profileUpdatesToDb(updates);
+    db.id = userId;
 
     const {data, error} = await supabase
       .from('profiles')
-      .update(db)
-      .eq('id', userId)
+      .upsert(db, {onConflict: 'id'})
       .select()
       .single();
 
