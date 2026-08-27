@@ -1,27 +1,29 @@
-import {useTheme} from "@/hooks/use-theme";
+import {useTheme} from '@/hooks/use-theme';
 
 const useThemeColors = () => {
-    const { theme } = useTheme();
-    const isDark = theme === 'dark';
+  const {theme} = useTheme();
+  const isDark = theme === 'dark';
 
-    return {
-        icon: isDark ? 'white' : 'black',
-        background: isDark ? '#0A0A0A' : '#F4F4F5',
-        primary: isDark ? '#FF2056' : '##f97316',
-        secondary: isDark ? '#262626' : '#18181BB2',
-        invert: isDark ? '#000000' : '#ffffff',
-        state: isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
-        faded: isDark ? 'rgba(0,0,0,0.9)' : 'rgba(255, 255, 255, 0.9)',
-        sheet: isDark ? '#262626' : '#ffffff',
-        highlight: '#FF2056',
-        lightDark: isDark ? '#262626' : 'white',
-        border: isDark ? '#404040' : '#E2E8F0',
-        text: isDark ? 'white' : 'black',
-        placeholder: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)',
-        switch: isDark ? 'rgba(255,255,255,0.4)' : '#ccc',
-        chatBg: isDark ? '#262626' : '#efefef',
-        isDark
-    };
+  return {
+    icon: isDark ? '#fafafa' : '#0f172a',
+    background: isDark ? '#09090b' : '#f8fafc',
+    primary: '#f97316',
+    secondary: isDark ? '#27272a' : '#e2e8f0',
+    invert: isDark ? '#000000' : '#ffffff',
+    state: isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+    faded: isDark ? 'rgba(0,0,0,0.9)' : 'rgba(255, 255, 255, 0.9)',
+    sheet: isDark ? '#18181b' : '#ffffff',
+    highlight: '#f97316',
+    lightDark: isDark ? '#27272a' : '#ffffff',
+    border: isDark ? '#27272a' : '#e2e8f0',
+    text: isDark ? '#fafafa' : '#0f172a',
+    foreground: isDark ? '#fafafa' : '#0f172a',
+    mutedForeground: isDark ? '#a1a1aa' : '#64748b',
+    placeholder: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)',
+    switch: isDark ? 'rgba(255,255,255,0.4)' : '#ccc',
+    chatBg: isDark ? '#27272a' : '#efefef',
+    isDark,
+  };
 };
 
 export default useThemeColors;
