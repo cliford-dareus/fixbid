@@ -6,11 +6,18 @@
  *   description?: string,
  *   photo_urls?: string[],
  *   hourly_rate?: number,
- *   region?: string
+ *   region?: string,
+ *   provider?: "xai" | "gemini" | "auto"  // optional override
  * }
  *
- * Env: XAI_API_KEY (required)
- * Optional: XAI_MODEL (default grok-4.1-fast)
+ * Env (at least one of):
+ *   XAI_API_KEY
+ *   GEMINI_API_KEY
+ *
+ * Optional:
+ *   ESTIMATE_PROVIDER = xai | gemini | auto  (default: auto)
+ *   XAI_MODEL (default grok-4.1-fast)
+ *   GEMINI_MODEL (default gemini-2.0-flash)
  */
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -32,7 +39,7 @@ JSON schema:
   "job_name": string,
   "category": string,
   "summary": string,
-  "confidence": number,  // 0-1
+  "confidence": number,
   "labor_hours": number,
   "labor_rate": number,
   "line_items": [
@@ -41,6 +48,8 @@ JSON schema:
   "notes": string,
   "upsells": string[]
 }`;
+
+type Provider = "xai" | "gemini";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -51,12 +60,15 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const xaiKey = Deno.env.get("XAI_API_KEY");
-    if (!xaiKey) {
-      return jsonResponse({ error: "AI estimates not configured (missing XAI_API_KEY)" }, 503);
+    const xaiKey = Deno.env.get("XAI_API_KEY") || "";
+    const geminiKey = Deno.env.get("GEMINI_API_KEY") || "";
+    if (!xaiKey && !geminiKey) {
+      return jsonResponse(
+        { error: "AI estimates not configured (set XAI_API_KEY and/or GEMINI_API_KEY)" },
+        503,
+      );
     }
 
-    // Require authenticated user
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return jsonResponse({ error: "Unauthorized" }, 401);
@@ -76,7 +88,9 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const description = String(body.description || "").trim();
     const photoUrls = Array.isArray(body.photo_urls)
-      ? (body.photo_urls as string[]).filter((u) => typeof u === "string" && u.startsWith("http")).slice(0, 4)
+      ? (body.photo_urls as string[])
+        .filter((u) => typeof u === "string" && u.startsWith("http"))
+        .slice(0, 4)
       : [];
     const hourlyRate = Number(body.hourly_rate) > 0 ? Number(body.hourly_rate) : null;
     const region = String(body.region || "").trim();
@@ -84,8 +98,6 @@ Deno.serve(async (req) => {
     if (!description && photoUrls.length === 0) {
       return jsonResponse({ error: "description or photo_urls required" }, 400);
     }
-
-    const model = Deno.env.get("XAI_MODEL") || "grok-4.1-fast";
 
     const userText = [
       description ? `Job description: ${description}` : "No text description provided — rely on photos.",
@@ -96,82 +108,63 @@ Deno.serve(async (req) => {
       .filter(Boolean)
       .join("\n");
 
-    // deno-lint-ignore no-explicit-any
-    const content: any[] = [{ type: "text", text: userText }];
-    for (const url of photoUrls) {
-      content.push({
-        type: "image_url",
-        image_url: { url, detail: "high" },
-      });
-    }
-
-    const aiRes = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${xaiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.3,
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content },
-        ],
-      }),
-    });
-
-    const aiText = await aiRes.text();
-    if (!aiRes.ok) {
-      console.error("xAI error", aiRes.status, aiText.slice(0, 500));
-      return jsonResponse(
-        { error: "AI request failed", detail: aiText.slice(0, 300) },
-        502,
-      );
-    }
-
-    let parsed: Record<string, unknown>;
-    try {
-      const envelope = JSON.parse(aiText);
-      const raw =
-        envelope.choices?.[0]?.message?.content ??
-        envelope.choices?.[0]?.message?.reasoning_content ??
-        "";
-      parsed = extractJson(String(raw));
-    } catch (e) {
-      console.error("parse AI json", e, aiText.slice(0, 400));
-      return jsonResponse({ error: "Could not parse AI estimate" }, 502);
-    }
-
-    const lineItems = normalizeLineItems(parsed.line_items);
-    if (lineItems.length === 0) {
-      return jsonResponse({ error: "AI returned no line items" }, 502);
-    }
-
-    const total = lineItems.reduce(
-      (s, li) => s + li.quantity * li.unit_price,
-      0,
+    const order = resolveProviderOrder(
+      String(body.provider || Deno.env.get("ESTIMATE_PROVIDER") || "auto"),
+      Boolean(xaiKey),
+      Boolean(geminiKey),
     );
-    const suggested = Math.ceil(total / 5) * 5;
 
-    return jsonResponse({
-      success: true,
-      estimate: {
-        job_name: String(parsed.job_name || description || "Service job").slice(0, 120),
-        category: String(parsed.category || "General").slice(0, 60),
-        summary: String(parsed.summary || "").slice(0, 500),
-        confidence: clamp01(Number(parsed.confidence)),
-        labor_hours: Number(parsed.labor_hours) || 0,
-        labor_rate: Number(parsed.labor_rate) || hourlyRate || 0,
-        line_items: lineItems,
-        total: Math.round(total * 100) / 100,
-        suggested,
-        notes: String(parsed.notes || "").slice(0, 1000),
-        upsells: Array.isArray(parsed.upsells)
-          ? (parsed.upsells as string[]).map(String).slice(0, 8)
-          : [],
-      },
-    });
+    if (order.length === 0) {
+      return jsonResponse({ error: "No AI provider available for requested mode" }, 503);
+    }
+
+    let lastError = "";
+    for (const provider of order) {
+      try {
+        const rawText =
+          provider === "xai"
+            ? await callXai(xaiKey, userText, photoUrls)
+            : await callGemini(geminiKey, userText, photoUrls);
+
+        const parsed = extractJson(rawText);
+        const lineItems = normalizeLineItems(parsed.line_items);
+        if (lineItems.length === 0) {
+          lastError = `${provider}: no line items`;
+          continue;
+        }
+
+        const total = lineItems.reduce((s, li) => s + li.quantity * li.unit_price, 0);
+        const suggested = Math.ceil(total / 5) * 5;
+
+        return jsonResponse({
+          success: true,
+          provider,
+          estimate: {
+            job_name: String(parsed.job_name || description || "Service job").slice(0, 120),
+            category: String(parsed.category || "General").slice(0, 60),
+            summary: String(parsed.summary || "").slice(0, 500),
+            confidence: clamp01(Number(parsed.confidence)),
+            labor_hours: Number(parsed.labor_hours) || 0,
+            labor_rate: Number(parsed.labor_rate) || hourlyRate || 0,
+            line_items: lineItems,
+            total: Math.round(total * 100) / 100,
+            suggested,
+            notes: String(parsed.notes || "").slice(0, 1000),
+            upsells: Array.isArray(parsed.upsells)
+              ? (parsed.upsells as string[]).map(String).slice(0, 8)
+              : [],
+          },
+        });
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+        console.error(`estimate provider ${provider} failed`, lastError);
+      }
+    }
+
+    return jsonResponse(
+      { error: "All AI providers failed", detail: lastError.slice(0, 400) },
+      502,
+    );
   } catch (err) {
     console.error("estimate-job-cost", err);
     return jsonResponse(
@@ -180,6 +173,131 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+function resolveProviderOrder(
+  mode: string,
+  hasXai: boolean,
+  hasGemini: boolean,
+): Provider[] {
+  const m = mode.toLowerCase();
+  if (m === "xai") return hasXai ? ["xai"] : [];
+  if (m === "gemini") return hasGemini ? ["gemini"] : [];
+  // auto: prefer Gemini for vision cost, then xAI; or whatever is configured
+  const order: Provider[] = [];
+  if (hasGemini) order.push("gemini");
+  if (hasXai) order.push("xai");
+  return order;
+}
+
+async function callXai(
+  apiKey: string,
+  userText: string,
+  photoUrls: string[],
+): Promise<string> {
+  const model = Deno.env.get("XAI_MODEL") || "grok-4.1-fast";
+  // deno-lint-ignore no-explicit-any
+  const content: any[] = [{ type: "text", text: userText }];
+  for (const url of photoUrls) {
+    content.push({
+      type: "image_url",
+      image_url: { url, detail: "high" },
+    });
+  }
+
+  const aiRes = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.3,
+      messages: [
+        { role: "system", content: SYSTEM },
+        { role: "user", content },
+      ],
+    }),
+  });
+
+  const aiText = await aiRes.text();
+  if (!aiRes.ok) {
+    throw new Error(`xAI ${aiRes.status}: ${aiText.slice(0, 300)}`);
+  }
+
+  const envelope = JSON.parse(aiText);
+  const raw =
+    envelope.choices?.[0]?.message?.content ??
+    envelope.choices?.[0]?.message?.reasoning_content ??
+    "";
+  return String(raw);
+}
+
+async function callGemini(
+  apiKey: string,
+  userText: string,
+  photoUrls: string[],
+): Promise<string> {
+  const model = Deno.env.get("GEMINI_MODEL") || "gemini-2.0-flash";
+
+  // deno-lint-ignore no-explicit-any
+  const parts: any[] = [{ text: `${SYSTEM}\n\n---\n\n${userText}` }];
+
+  for (const url of photoUrls) {
+    try {
+      const img = await fetchImageAsInline(url);
+      if (img) parts.push({ inline_data: img });
+    } catch (e) {
+      console.warn("gemini image fetch failed", url, e);
+    }
+  }
+
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
+    `?key=${encodeURIComponent(apiKey)}`;
+
+  const aiRes = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts }],
+      generationConfig: {
+        temperature: 0.3,
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+
+  const aiText = await aiRes.text();
+  if (!aiRes.ok) {
+    throw new Error(`Gemini ${aiRes.status}: ${aiText.slice(0, 300)}`);
+  }
+
+  const envelope = JSON.parse(aiText);
+  const raw =
+    envelope.candidates?.[0]?.content?.parts
+      ?.map((p: { text?: string }) => p.text || "")
+      .join("") ?? "";
+  return String(raw);
+}
+
+async function fetchImageAsInline(
+  imageUrl: string,
+): Promise<{ mime_type: string; data: string } | null> {
+  const res = await fetch(imageUrl);
+  if (!res.ok) return null;
+  const ctype = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
+  if (!ctype.startsWith("image/")) return null;
+  const buf = new Uint8Array(await res.arrayBuffer());
+  // Cap ~4MB base64 payload
+  if (buf.byteLength > 4_000_000) return null;
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < buf.length; i += chunk) {
+    binary += String.fromCharCode(...buf.subarray(i, i + chunk));
+  }
+  return { mime_type: ctype, data: btoa(binary) };
+}
 
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0.5;
@@ -209,7 +327,10 @@ function normalizeLineItems(
     .map((row) => ({
       description: String(row.description || row.name || "Item").slice(0, 200),
       quantity: Math.max(0.01, Number(row.quantity) || 1),
-      unit_price: Math.max(0, Math.round((Number(row.unit_price ?? row.unitPrice) || 0) * 100) / 100),
+      unit_price: Math.max(
+        0,
+        Math.round((Number(row.unit_price ?? row.unitPrice) || 0) * 100) / 100,
+      ),
       is_labor: Boolean(row.is_labor ?? row.isLabor),
     }))
     .filter((li) => li.description);
