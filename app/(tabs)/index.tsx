@@ -8,6 +8,7 @@ import {useQuote} from '@/context/quote-context';
 import {useProfile} from '@/context/profile-context';
 import Popover from 'react-native-popover-view';
 import {GlassView} from 'expo-glass-effect';
+import {Button, Card, EmptyState, StatusBadge} from '@/components/ui';
 
 function MetricCard({
   label,
@@ -21,13 +22,13 @@ function MetricCard({
   accent: string;
 }) {
   return (
-    <View className="bg-card flex-1 rounded-2xl p-4 shadow-sm">
+    <Card className="flex-1 shadow-sm">
       <View className="mb-2 h-8 w-8 items-center justify-center rounded-xl bg-accent">
         <Feather name={icon} size={18} color={accent} />
       </View>
-      <Text className="text-foreground text-xl font-extrabold">{value}</Text>
-      <Text className="text-muted-foreground text-xs font-medium">{label}</Text>
-    </View>
+      <Text className="text-xl font-extrabold text-foreground">{value}</Text>
+      <Text className="text-xs font-medium text-muted-foreground">{label}</Text>
+    </Card>
   );
 }
 
@@ -40,26 +41,6 @@ function greetingForHour(hour: number): string {
 function firstName(full?: string | null): string {
   if (!full?.trim()) return 'there';
   return full.trim().split(/\s+/)[0];
-}
-
-function statusLabel(status: string): string {
-  const s = (status || 'draft').toLowerCase();
-  if (s === 'sent') return 'Sent';
-  if (s === 'accepted' || s === 'approved' || s === 'deposit_paid' || s === 'paid') {
-    return 'Accepted';
-  }
-  if (s === 'declined') return 'Declined';
-  return 'Draft';
-}
-
-function statusColor(status: string): string {
-  const s = (status || 'draft').toLowerCase();
-  if (s === 'sent') return 'text-amber-600';
-  if (s === 'accepted' || s === 'approved' || s === 'deposit_paid' || s === 'paid') {
-    return 'text-green-600';
-  }
-  if (s === 'declined') return 'text-red-600';
-  return 'text-slate-500';
 }
 
 function formatQuoteWhen(iso: string): string {
@@ -187,19 +168,17 @@ export default function Dashboard() {
       >
         <View className="mb-6 flex-row items-center justify-between px-6 pt-6">
           <View className="flex-1 pr-3">
-            <Text className="text-muted-foreground text-[15px]">{greet},</Text>
-            <Text className="text-foreground text-3xl font-bold" numberOfLines={1}>
+            <Text className="text-[15px] text-muted-foreground">{greet},</Text>
+            <Text className="text-3xl font-bold text-foreground" numberOfLines={1}>
               {name}!
             </Text>
           </View>
-          <TouchableOpacity
-            className="flex-row items-center gap-2 rounded-2xl bg-primary px-4 py-2.5"
+          <Button
+            title="New Quote"
+            icon="plus"
+            size="sm"
             onPress={() => router.push('/quote/new')}
-            activeOpacity={0.85}
-          >
-            <Feather name="plus" size={18} color="#fff" />
-            <Text className="text-[15px] font-bold text-white">New Quote</Text>
-          </TouchableOpacity>
+          />
         </View>
 
         <View className="mb-6 flex-row gap-2.5 px-5">
@@ -225,22 +204,19 @@ export default function Dashboard() {
 
         <View className="mb-8 px-6">
           <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-foreground text-xl font-semibold">Today's jobs</Text>
+            <Text className="text-xl font-semibold text-foreground">Today's jobs</Text>
             <TouchableOpacity onPress={() => router.push('/(tabs)/jobs')}>
-              <Text className="text-primary text-xs font-semibold">See all</Text>
+              <Text className="text-xs font-semibold text-primary">See all</Text>
             </TouchableOpacity>
           </View>
 
           {todaysJobs.length === 0 ? (
-            <View className="items-center justify-center gap-2 rounded-2xl border border-dashed border-zinc-300 bg-card p-6">
-              <Feather name="sun" size={24} color={colors.mutedForeground || '#94a3b8'} />
-              <Text className="text-foreground text-center font-medium">
-                No jobs scheduled today
-              </Text>
-              <Text className="text-muted-foreground text-center text-xs">
-                Accepted deposits show up here once you set a date.
-              </Text>
-            </View>
+            <EmptyState
+              variant="card"
+              icon="sun"
+              title="No jobs scheduled today"
+              subtitle="Accepted deposits show up here once you set a date."
+            />
           ) : (
             todaysJobs.map((job) => (
               <TouchableOpacity
@@ -250,14 +226,14 @@ export default function Dashboard() {
                 className="mb-2 flex-row items-center justify-between rounded-3xl bg-card p-3.5 shadow-sm"
               >
                 <View className="flex-1 gap-0.5 pr-2">
-                  <Text className="text-foreground text-[15px] font-semibold" numberOfLines={1}>
+                  <Text className="text-[15px] font-semibold text-foreground" numberOfLines={1}>
                     {job.job_name}
                   </Text>
-                  <Text className="text-muted-foreground text-[12px]" numberOfLines={1}>
+                  <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
                     {job.client_name}
                   </Text>
                 </View>
-                <Text className="text-foreground text-sm font-bold">
+                <Text className="text-sm font-bold text-foreground">
                   ${Number(job.total_amount).toLocaleString()}
                 </Text>
               </TouchableOpacity>
@@ -267,26 +243,21 @@ export default function Dashboard() {
 
         <View className="px-6">
           <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-foreground text-xl font-semibold">Recent quotes</Text>
+            <Text className="text-xl font-semibold text-foreground">Recent quotes</Text>
             <TouchableOpacity onPress={() => router.push('/(tabs)/quotes')}>
-              <Text className="text-primary text-xs font-semibold">See all</Text>
+              <Text className="text-xs font-semibold text-primary">See all</Text>
             </TouchableOpacity>
           </View>
 
           {recentQuotes.length === 0 ? (
-            <View className="items-center gap-2 rounded-2xl border border-dashed border-zinc-300 bg-card p-6">
-              <Feather name="file-text" size={24} color={colors.mutedForeground || '#94a3b8'} />
-              <Text className="text-foreground text-center font-medium">No quotes yet</Text>
-              <Text className="text-muted-foreground text-center text-xs">
-                Create one from a photo in under a minute.
-              </Text>
-              <TouchableOpacity
-                className="mt-2 rounded-xl bg-primary px-4 py-2"
-                onPress={() => router.push('/quote/new')}
-              >
-                <Text className="font-bold text-white">New quote</Text>
-              </TouchableOpacity>
-            </View>
+            <EmptyState
+              variant="card"
+              icon="file-text"
+              title="No quotes yet"
+              subtitle="Create one from a photo in under a minute."
+              actionLabel="New quote"
+              onAction={() => router.push('/quote/new')}
+            />
           ) : (
             recentQuotes.map((q) => (
               <TouchableOpacity
@@ -295,13 +266,16 @@ export default function Dashboard() {
                 activeOpacity={0.85}
                 className="mb-3 rounded-3xl bg-card p-5 shadow-sm"
               >
-                <Text className="text-foreground font-medium" numberOfLines={1}>
-                  {q.job_name || 'Quote'} — {q.client_name || 'Client'}
+                <View className="flex-row items-start justify-between gap-2">
+                  <Text className="flex-1 font-medium text-foreground" numberOfLines={1}>
+                    {q.job_name || 'Quote'} — {q.client_name || 'Client'}
+                  </Text>
+                  <StatusBadge status={q.status} />
+                </View>
+                <Text className="mt-1 font-semibold text-foreground">
+                  ${Number(q.total_amount).toLocaleString()}
                 </Text>
-                <Text className={`mt-1 font-semibold ${statusColor(q.status)}`}>
-                  ${Number(q.total_amount).toLocaleString()} · {statusLabel(q.status)}
-                </Text>
-                <Text className="text-muted-foreground mt-2 text-sm">
+                <Text className="mt-2 text-sm text-muted-foreground">
                   {formatQuoteWhen(q.created_at)}
                 </Text>
               </TouchableOpacity>
