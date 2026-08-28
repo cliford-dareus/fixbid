@@ -7,23 +7,17 @@
  *   photo_urls?: string[],
  *   hourly_rate?: number,
  *   region?: string,
- *   provider?: "xai" | "gemini" | "auto"  // optional override
+ *   provider?: "xai" | "gemini" | "auto",
+ *   audio_base64?: string,  // voice-to-quote (Gemini multimodal)
+ *   audio_mime?: string
  * }
- *
- * Env (at least one of):
- *   XAI_API_KEY
- *   GEMINI_API_KEY
- *
- * Optional:
- *   ESTIMATE_PROVIDER = xai | gemini | auto  (default: auto)
- *   XAI_MODEL (default grok-4.1-fast)
- *   GEMINI_MODEL (default gemini-2.0-flash)
  */
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const SYSTEM = `You are FixBid's estimating assistant for US residential handymen and small contractors.
-Given a job description and optional job-site photos, produce a realistic line-item estimate.
+Given a job description, optional job-site photos, and/or a spoken walkthrough (audio/transcript), produce a realistic line-item estimate.
+If the input is spoken, extract the work scope from the speech, fill notes with a clean summary of what the handyman said, and set job_name from the work described.
 
 Rules:
 - Prefer practical residential handyman work (drywall, plumbing, electrical basic, painting, carpentry, doors, flooring, hurricane prep).
@@ -94,13 +88,31 @@ Deno.serve(async (req) => {
       : [];
     const hourlyRate = Number(body.hourly_rate) > 0 ? Number(body.hourly_rate) : null;
     const region = String(body.region || "").trim();
+    const audioBase64 = typeof body.audio_base64 === "string"
+      ? body.audio_base64.replace(/^data:[^;]+;base64,/, "")
+      : "";
+    const audioMime = String(body.audio_mime || "audio/m4a").trim() || "audio/m4a";
+    const hasAudio = audioBase64.length > 100;
 
-    if (!description && photoUrls.length === 0) {
-      return jsonResponse({ error: "description or photo_urls required" }, 400);
+    if (!description && photoUrls.length === 0 && !hasAudio) {
+      return jsonResponse({ error: "description, photo_urls, or audio_base64 required" }, 400);
+    }
+
+    if (hasAudio && !geminiKey) {
+      return jsonResponse({
+        error: "Voice-to-quote requires GEMINI_API_KEY (audio transcription)",
+      }, 503);
     }
 
     const userText = [
-      description ? `Job description: ${description}` : "No text description provided — rely on photos.",
+      hasAudio
+        ? "The user attached a spoken walkthrough of the job (audio). Transcribe the intent and turn it into line items."
+        : null,
+      description
+        ? `Job description: ${description}`
+        : hasAudio
+        ? "No typed description — rely on the spoken audio."
+        : "No text description provided — rely on photos.",
       hourlyRate ? `Handyman preferred labor rate: $${hourlyRate}/hr` : null,
       region ? `Region: ${region}` : null,
       "Return JSON only.",
@@ -108,11 +120,15 @@ Deno.serve(async (req) => {
       .filter(Boolean)
       .join("\n");
 
-    const order = resolveProviderOrder(
+    let order = resolveProviderOrder(
       String(body.provider || Deno.env.get("ESTIMATE_PROVIDER") || "auto"),
       Boolean(xaiKey),
       Boolean(geminiKey),
     );
+    if (hasAudio) {
+      order = order.filter((p) => p === "gemini");
+      if (order.length === 0 && geminiKey) order = ["gemini"];
+    }
 
     if (order.length === 0) {
       return jsonResponse({ error: "No AI provider available for requested mode" }, 503);
@@ -124,7 +140,12 @@ Deno.serve(async (req) => {
         const rawText =
           provider === "xai"
             ? await callXai(xaiKey, userText, photoUrls)
-            : await callGemini(geminiKey, userText, photoUrls);
+            : await callGemini(
+              geminiKey,
+              userText,
+              photoUrls,
+              hasAudio ? { base64: audioBase64, mime: audioMime } : null,
+            );
 
         const parsed = extractJson(rawText);
         const lineItems = normalizeLineItems(parsed.line_items);
@@ -182,7 +203,6 @@ function resolveProviderOrder(
   const m = mode.toLowerCase();
   if (m === "xai") return hasXai ? ["xai"] : [];
   if (m === "gemini") return hasGemini ? ["gemini"] : [];
-  // auto: prefer Gemini for vision cost, then xAI; or whatever is configured
   const order: Provider[] = [];
   if (hasGemini) order.push("gemini");
   if (hasXai) order.push("xai");
@@ -237,11 +257,21 @@ async function callGemini(
   apiKey: string,
   userText: string,
   photoUrls: string[],
+  audio?: { base64: string; mime: string } | null,
 ): Promise<string> {
   const model = Deno.env.get("GEMINI_MODEL") || "gemini-2.0-flash";
 
   // deno-lint-ignore no-explicit-any
   const parts: any[] = [{ text: `${SYSTEM}\n\n---\n\n${userText}` }];
+
+  if (audio?.base64) {
+    parts.push({
+      inline_data: {
+        mime_type: audio.mime || "audio/m4a",
+        data: audio.base64,
+      },
+    });
+  }
 
   for (const url of photoUrls) {
     try {
@@ -289,7 +319,6 @@ async function fetchImageAsInline(
   const ctype = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
   if (!ctype.startsWith("image/")) return null;
   const buf = new Uint8Array(await res.arrayBuffer());
-  // Cap ~4MB base64 payload
   if (buf.byteLength > 4_000_000) return null;
   let binary = "";
   const chunk = 0x8000;
