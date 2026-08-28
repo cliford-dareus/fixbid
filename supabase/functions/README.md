@@ -6,16 +6,23 @@ Payment source of truth is **`stripe-webhook`**. The browser success page only c
 
 | Function | Purpose |
 |----------|---------|
-| `public-quote` | GET quote for public page; POST `{ action: "decline" }` |
+| `public-quote` | GET quote for public page; POST `{ action: "decline" }` + Expo push |
 | `create-checkout-session` | Stripe Checkout; **server computes 50% deposit** |
-| `stripe-webhook` | Verify signature → mark quote `accepted` → insert `payments` → create `jobs` |
+| `stripe-webhook` | Verify signature → mark quote `accepted` → insert `payments` → create `jobs` → Expo push |
 | `update-quote-on-success` | Success page helper (retrieve session; best-effort status) |
 
-Shared helpers live in `_shared/`.
+Shared helpers live in `_shared/` (`cors`, `supabase`, `expo-push`).
+
+## Security checklist (high priority)
+
+1. **RLS** — apply migrations (`rls_core`, `payments`, `storage_quote_photos`). Authenticated users only see/edit their own rows. Edge functions use the **service role** and bypass RLS.
+2. **Public functions** — deploy quote/checkout/webhook with `--no-verify-jwt`. Do **not** expose the service role key to the client.
+3. **Deposit amount** — `create-checkout-session` always recomputes 50% from `quotes.total_amount`; ignore client `deposit_amount`.
+4. **Webhook** — verify `stripe-signature` with `STRIPE_WEBHOOK_SECRET`; idempotent on `stripe_payment_intent_id`.
+5. **Storage** — uploads only under `{auth.uid()}/...` in `quote-photos`; public read for client-facing photos.
+6. **Secrets** — only in Supabase secrets / CI; never in `EXPO_PUBLIC_*`.
 
 ## Environment secrets
-
-Set in Supabase Dashboard → Edge Functions → Secrets (or `supabase secrets set`):
 
 ```bash
 supabase secrets set \
@@ -37,7 +44,7 @@ Optional:
 
 ```bash
 # From repo root (requires Supabase CLI linked to the project)
-supabase db push   # applies migrations/ including payments table
+supabase db push   # RLS, payments, realtime, expo_push_token, branding, storage
 
 supabase functions deploy public-quote --no-verify-jwt
 supabase functions deploy create-checkout-session --no-verify-jwt
@@ -45,12 +52,10 @@ supabase functions deploy update-quote-on-success --no-verify-jwt
 supabase functions deploy stripe-webhook --no-verify-jwt
 ```
 
-`--no-verify-jwt` is required for public quote/checkout and for Stripe webhooks (no user JWT).
-
 ## Stripe Dashboard
 
 1. Developers → Webhooks → Add endpoint  
-   URL: `https://nzuqlglokhgdukcxhvit.supabase.co/functions/v1/stripe-webhook`
+   URL: `https://<project-ref>.supabase.co/functions/v1/stripe-webhook`
 2. Events:
    - `checkout.session.completed`
    - `payment_intent.succeeded` (in-app PaymentSheet)
@@ -67,6 +72,7 @@ Client Pay Deposit
        - idempotent payments insert
        - quotes.status = accepted
        - jobs row if missing
+       - Expo push to handyman
   → success.html?session_id=...
   → update-quote-on-success (display + backup status)
 ```
@@ -84,3 +90,4 @@ supabase functions serve stripe-webhook --env-file ./supabase/.env.local
 - Webhook must return 2xx only after durable DB updates (or Stripe will retry).
 - Ensure `profiles.stripe_account_id` exists if using Connect.
 - Align quote statuses: `draft` → `sent` → `accepted` | `declined`.
+- Public quote links are capability URLs (UUID); treat them like secrets when sharing.
