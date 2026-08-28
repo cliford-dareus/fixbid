@@ -9,8 +9,11 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { notifyHandymanPush } from "../_shared/expo-push.ts";
 
-/** Columns that match the app's create/list path (lib/data/quotes.ts). */
+/** Core columns + trust fields (graceful if migration not applied yet). */
 const QUOTE_CORE =
+  "id, client_id, client_name, client_phone, job_name, notes, total_amount, status, created_at, photos, handyman_id, inclusions, exclusions, warranty_text, deposit_percent, valid_until";
+
+const QUOTE_CORE_MINIMAL =
   "id, client_id, client_name, client_phone, job_name, notes, total_amount, status, created_at, photos, handyman_id";
 
 Deno.serve(async (req) => {
@@ -79,22 +82,36 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, error: "id required" }, 400);
     }
 
-    const { data: quote, error: quoteError } = await supabase
+    let quote: Record<string, unknown> | null = null;
+
+    const full = await supabase
       .from("quotes")
       .select(QUOTE_CORE)
       .eq("id", id)
       .maybeSingle();
 
-    if (quoteError) {
-      console.error("public-quote select", quoteError);
-      return jsonResponse(
-        {
-          success: false,
-          error: "Quote not found",
-          detail: quoteError.message,
-        },
-        404,
-      );
+    if (!full.error && full.data) {
+      quote = full.data;
+    } else {
+      if (full.error) {
+        console.warn("public-quote full select", full.error.message);
+      }
+      const minimal = await supabase
+        .from("quotes")
+        .select(QUOTE_CORE_MINIMAL)
+        .eq("id", id)
+        .maybeSingle();
+      if (minimal.error) {
+        console.error("public-quote select", minimal.error);
+        return jsonResponse(
+          { success: false, error: "Quote not found", detail: minimal.error.message },
+          404,
+        );
+      }
+      if (!minimal.data) {
+        return jsonResponse({ success: false, error: "Quote not found" }, 404);
+      }
+      quote = minimal.data;
     }
 
     if (!quote) {
@@ -119,6 +136,26 @@ Deno.serve(async (req) => {
       handyman = await loadHandyman(supabase, quote.handyman_id as string);
     }
 
+    // Fill trust fields from profile defaults when quote snapshot is empty
+    const inclusions =
+      (quote.inclusions as string) ||
+      (handyman.default_inclusions as string) ||
+      null;
+    const exclusions =
+      (quote.exclusions as string) ||
+      (handyman.default_exclusions as string) ||
+      null;
+    const warranty_text =
+      (quote.warranty_text as string) ||
+      (handyman.warranty_text as string) ||
+      null;
+    const deposit_percent =
+      quote.deposit_percent != null
+        ? Number(quote.deposit_percent)
+        : handyman.deposit_percent != null
+        ? Number(handyman.deposit_percent)
+        : 50;
+
     return jsonResponse({
       success: true,
       quote: {
@@ -134,6 +171,11 @@ Deno.serve(async (req) => {
         handyman_id: quote.handyman_id,
         photos: quote.photos ?? [],
         project_address: null,
+        inclusions,
+        exclusions,
+        warranty_text,
+        deposit_percent,
+        valid_until: quote.valid_until ?? null,
         line_items,
       },
       handyman,
@@ -153,8 +195,9 @@ Deno.serve(async (req) => {
 // deno-lint-ignore no-explicit-any
 async function loadHandyman(supabase: any, handymanId: string) {
   const full =
-    "full_name, business_name, phone, email, address, city, state, zip, logo_url, tagline, license_number, website";
-  const core = "full_name, business_name, phone, email, address, logo_url";
+    "full_name, business_name, phone, email, address, city, state, zip, logo_url, tagline, license_number, website, insurance_info, default_inclusions, default_exclusions, warranty_text, deposit_percent, quote_valid_days";
+  const core =
+    "full_name, business_name, phone, email, address, logo_url, tagline, license_number";
 
   let profile: Record<string, unknown> | null = null;
 
@@ -204,5 +247,11 @@ async function loadHandyman(supabase: any, handymanId: string) {
     tagline: profile.tagline ?? "",
     license_number: profile.license_number ?? "",
     website: profile.website ?? "",
+    insurance_info: profile.insurance_info ?? "",
+    default_inclusions: profile.default_inclusions ?? "",
+    default_exclusions: profile.default_exclusions ?? "",
+    warranty_text: profile.warranty_text ?? "",
+    deposit_percent: profile.deposit_percent ?? 50,
+    quote_valid_days: profile.quote_valid_days ?? 30,
   };
 }
