@@ -28,6 +28,24 @@ export async function getJob(id: string): Promise<Result<Job>> {
   }
 }
 
+/** One job per quote (webhook + manual convert). */
+export async function getJobByQuoteId(quoteId: string): Promise<Result<Job | null>> {
+  try {
+    const {data, error} = await supabase
+      .from('jobs')
+      .select('*')
+      .eq('quote_id', quoteId)
+      .order('created_at', {ascending: false})
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return err(error);
+    return ok(data ? mapJobRow(data) : null);
+  } catch (e) {
+    return err(e, 'Failed to look up job for quote');
+  }
+}
+
 export async function createJob(input: CreateJobInput): Promise<Result<Job>> {
   try {
     const {data, error} = await supabase
