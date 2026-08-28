@@ -1,10 +1,8 @@
 /**
- * Compatibility facade over domain providers (B2).
+ * Compatibility facade over domain providers.
  *
- * Prefer:
- *   useQuotes()  · useClients()  · useJobs()
- *
- * useQuote() still works for existing screens — it merges the three contexts.
+ * Prefer: useQuotes() · useClients() · useJobs()
+ * Draft builder: useNewQuoteDraft() in app/quote/new only.
  */
 import React, {ReactNode, useCallback, useMemo, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
@@ -20,7 +18,6 @@ export {useClients} from '@/context/clients-context';
 export {useJobs} from '@/context/jobs-context';
 export {useQuotes} from '@/context/quotes-context';
 
-/** Nest domain providers. Order does not matter (no cross-deps). */
 export function QuoteProvider({children}: {children: ReactNode}) {
   return (
     <ClientsProvider>
@@ -31,10 +28,7 @@ export function QuoteProvider({children}: {children: ReactNode}) {
   );
 }
 
-/**
- * Legacy combined hook — same shape as pre-B2 QuoteContext.
- * New code should call useQuotes / useClients / useJobs instead.
- */
+/** Combined list API for existing screens (no draft fields). */
 export function useQuote() {
   const {user} = useAuth();
   const userId = user?.id;
@@ -66,34 +60,23 @@ export function useQuote() {
   return useMemo(
     () => ({
       quotes: quotes.quotes,
-      newQuote: quotes.newQuote,
-      addNewQuote: quotes.addNewQuote,
-      updateNewQuote: quotes.updateNewQuote,
-      clearNewQuote: quotes.clearNewQuote,
       updateQuote: quotes.updateQuote,
       deleteQuote: quotes.deleteQuote,
-
-      lineItems: quotes.lineItems,
-      updateLineItem: quotes.updateLineItem,
-      removeLineItem: quotes.removeLineItem,
-      addLineItem: quotes.addLineItem,
-      setLineItems: quotes.setLineItems,
+      fetchQuotes: quotes.fetchQuotes,
 
       clients: clients.clients,
       addClient: clients.addClient,
       updateClient: clients.updateClient,
       deleteClient: clients.deleteClient,
+      fetchClients: clients.fetchClients,
 
       jobs: jobs.jobs,
       updateJob: jobs.updateJob,
       getTodayJobs: jobs.getTodayJobs,
       getMonthRevenue: jobs.getMonthRevenue,
-
-      fetchClients: clients.fetchClients,
-      fetchQuotes: quotes.fetchQuotes,
       fetchJobs: jobs.fetchJobs,
-      refreshAll,
 
+      refreshAll,
       loading,
       setLoading,
     }),
