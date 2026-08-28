@@ -47,6 +47,12 @@ export interface Quote {
   created_at: string;
   photos: string[];
   handyman_id?: string;
+  /** Client-facing scope (public page). */
+  inclusions?: string | null;
+  exclusions?: string | null;
+  warranty_text?: string | null;
+  deposit_percent?: number | null;
+  valid_until?: string | null;
 }
 
 /** Snapshot stored on each revision row (state before the change). */
@@ -140,6 +146,12 @@ export interface Profile {
   default_tax_rate?: number;
   /** Expo push token for offline notifications */
   expo_push_token?: string | null;
+  /** Defaults applied to new quotes / public page. */
+  default_inclusions?: string | null;
+  default_exclusions?: string | null;
+  warranty_text?: string | null;
+  deposit_percent?: number | null;
+  quote_valid_days?: number | null;
 }
 
 export interface CreateClientInput {
@@ -160,6 +172,11 @@ export interface CreateQuoteInput {
   photos?: string[];
   total_amount: number;
   status?: QuoteStatus;
+  inclusions?: string | null;
+  exclusions?: string | null;
+  warranty_text?: string | null;
+  deposit_percent?: number | null;
+  valid_until?: string | null;
   line_items: Array<{
     description: string;
     quantity: number;
