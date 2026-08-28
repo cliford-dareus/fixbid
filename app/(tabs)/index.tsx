@@ -60,6 +60,81 @@ function formatQuoteWhen(iso: string): string {
   return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
 }
 
+const WON_STATUSES = new Set(['accepted', 'approved', 'deposit_paid', 'paid']);
+const LOST_STATUSES = new Set(['declined']);
+const SENT_OR_LATER = new Set([
+  'sent',
+  'accepted',
+  'approved',
+  'deposit_paid',
+  'paid',
+  'declined',
+]);
+
+/** Start of local week (Monday 00:00). */
+function startOfWeek(ref = new Date()): Date {
+  const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const day = d.getDay(); // 0 Sun .. 6 Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfWeek(start: Date): Date {
+  const d = new Date(start);
+  d.setDate(d.getDate() + 7);
+  return d;
+}
+
+function inRange(iso: string | undefined | null, start: Date, end: Date): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  return t >= start.getTime() && t < end.getTime();
+}
+
+function formatWeekLabel(start: Date, end: Date): string {
+  const last = new Date(end.getTime() - 1);
+  const opts: Intl.DateTimeFormatOptions = {month: 'short', day: 'numeric'};
+  return `${start.toLocaleDateString('en-US', opts)} – ${last.toLocaleDateString('en-US', opts)}`;
+}
+
+function moneyFromJobsThisWeek(
+  jobs: {
+    payments?: {amount?: number; at?: string; date?: string}[];
+    status?: string;
+    total_amount?: number;
+    created_at?: string;
+  }[],
+  start: Date,
+  end: Date,
+): number {
+  let total = 0;
+  for (const job of jobs) {
+    const payments = job.payments || [];
+    let paidInWeek = 0;
+    for (const p of payments) {
+      const when = p.at || p.date || job.created_at;
+      if (inRange(when || null, start, end)) {
+        paidInWeek += Number(p.amount) || 0;
+      }
+    }
+    if (paidInWeek > 0) {
+      total += paidInWeek;
+      continue;
+    }
+    if (
+      payments.length === 0 &&
+      inRange(job.created_at || null, start, end) &&
+      (job.status === 'paid' || job.status === 'completed')
+    ) {
+      total += Number(job.total_amount) || 0;
+    }
+  }
+  return total;
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const {isDark, isIOS, isWeb, colors} = useThemedNavigation();
@@ -73,6 +148,37 @@ export default function Dashboard() {
   );
   const pendingQuotes = quotes.filter((quote) => quote.status === 'sent');
   const recentQuotes = useMemo(() => quotes.slice(0, 5), [quotes]);
+
+  const weekStats = useMemo(() => {
+    const weekStart = startOfWeek();
+    const weekEnd = endOfWeek(weekStart);
+
+    const moneyMade = moneyFromJobsThisWeek(jobs, weekStart, weekEnd);
+
+    const quotesSent = quotes.filter((q) => {
+      const st = (q.status || '').toLowerCase();
+      return SENT_OR_LATER.has(st) && inRange(q.created_at, weekStart, weekEnd);
+    }).length;
+
+    const decided = quotes.filter((q) => {
+      const st = (q.status || '').toLowerCase();
+      return (
+        (WON_STATUSES.has(st) || LOST_STATUSES.has(st)) &&
+        inRange(q.created_at, weekStart, weekEnd)
+      );
+    });
+    const won = decided.filter((q) => WON_STATUSES.has((q.status || '').toLowerCase()));
+    const winRate =
+      decided.length > 0 ? Math.round((won.length / decided.length) * 100) : null;
+
+    return {
+      moneyMade,
+      quotesSent,
+      winRate,
+      decidedCount: decided.length,
+      label: formatWeekLabel(weekStart, weekEnd),
+    };
+  }, [jobs, quotes]);
 
   const hour = new Date().getHours();
   const greet = greetingForHour(hour);
@@ -126,26 +232,9 @@ export default function Dashboard() {
               <Text className="mb-2 px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Quick actions
               </Text>
-              <ActionRow
-                icon="plus-circle"
-                label="New quote"
-                onPress={() => router.push('/quote/new')}
-              />
-              <ActionRow
-                icon="users"
-                label="Clients"
-                onPress={() => router.push('/(tabs)/clients')}
-              />
-              <ActionRow
-                icon="briefcase"
-                label="Jobs"
-                onPress={() => router.push('/(tabs)/jobs')}
-              />
-              <ActionRow
-                icon="file-text"
-                label="All quotes"
-                onPress={() => router.push('/(tabs)/quotes')}
-              />
+              <ActionRow icon="plus" label="New quote" onPress={() => router.push('/quote/new')} />
+              <ActionRow icon="user-plus" label="New client" onPress={() => router.push('/client/new')} />
+              <ActionRow icon="settings" label="Settings" onPress={() => router.push('/settings')} />
             </GlassView>
           </Popover>
         </View>
@@ -179,6 +268,53 @@ export default function Dashboard() {
             size="sm"
             onPress={() => router.push('/quote/new')}
           />
+        </View>
+
+        <View className="mb-4 px-5">
+          <Card className="overflow-hidden border border-zinc-200/80 p-0 shadow-sm dark:border-zinc-800">
+            <View className="flex-row items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+              <View>
+                <Text className="text-[15px] font-bold text-foreground">This week</Text>
+                <Text className="text-[12px] text-muted-foreground">{weekStats.label}</Text>
+              </View>
+              <View className="h-9 w-9 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40">
+                <Feather name="trending-up" size={18} color="#16a34a" />
+              </View>
+            </View>
+            <View className="flex-row">
+              <View className="flex-1 items-center px-2 py-4">
+                <Text className="text-[22px] font-black tracking-tight text-foreground">
+                  ${Number(weekStats.moneyMade || 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                </Text>
+                <Text className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Money made
+                </Text>
+              </View>
+              <View className="w-px bg-zinc-100 dark:bg-zinc-800" />
+              <View className="flex-1 items-center px-2 py-4">
+                <Text className="text-[22px] font-black tracking-tight text-foreground">
+                  {weekStats.quotesSent}
+                </Text>
+                <Text className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Quotes sent
+                </Text>
+              </View>
+              <View className="w-px bg-zinc-100 dark:bg-zinc-800" />
+              <View className="flex-1 items-center px-2 py-4">
+                <Text className="text-[22px] font-black tracking-tight text-foreground">
+                  {weekStats.winRate == null ? '—' : `${weekStats.winRate}%`}
+                </Text>
+                <Text className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Win rate
+                </Text>
+              </View>
+            </View>
+            {weekStats.decidedCount === 0 ? (
+              <Text className="border-t border-zinc-100 px-4 py-2.5 text-center text-[12px] text-muted-foreground dark:border-zinc-800">
+                Win rate appears after clients accept or decline
+              </Text>
+            ) : null}
+          </Card>
         </View>
 
         <View className="mb-6 flex-row gap-2.5 px-5">
@@ -222,14 +358,14 @@ export default function Dashboard() {
               <TouchableOpacity
                 key={job.id}
                 onPress={() => router.push(`/job/${job.id}`)}
-                activeOpacity={0.8}
-                className="mb-2 flex-row items-center justify-between rounded-3xl bg-card p-3.5 shadow-sm"
+                activeOpacity={0.85}
+                className="mb-3 flex-row items-center justify-between rounded-3xl bg-card p-5 shadow-sm"
               >
-                <View className="flex-1 gap-0.5 pr-2">
-                  <Text className="text-[15px] font-semibold text-foreground" numberOfLines={1}>
+                <View className="flex-1 pr-3">
+                  <Text className="font-semibold text-foreground" numberOfLines={1}>
                     {job.job_name}
                   </Text>
-                  <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
+                  <Text className="mt-0.5 text-sm text-muted-foreground" numberOfLines={1}>
                     {job.client_name}
                   </Text>
                 </View>
