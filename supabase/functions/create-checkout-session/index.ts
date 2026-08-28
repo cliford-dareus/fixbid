@@ -10,6 +10,14 @@ import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { depositFromTotal, serviceClient, toCents } from "../_shared/supabase.ts";
 
+const BLOCKED_STATUSES = new Set([
+  "accepted",
+  "approved",
+  "deposit_paid",
+  "paid",
+  "declined",
+]);
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -29,41 +37,47 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
-    const quoteId = body.quote_id as string | undefined;
+    const quoteId = typeof body.quote_id === "string" ? body.quote_id.trim() : "";
     if (!quoteId) {
       return jsonResponse({ error: "quote_id is required" }, 400);
     }
 
+    // Ignore client-supplied deposit_amount entirely (do not log as trusted).
+
     const supabase = serviceClient();
+    // Only columns that exist on the app write path (avoid client_email 404s).
     const { data: quote, error: quoteErr } = await supabase
       .from("quotes")
-      .select(
-        "id, total_amount, status, client_name, client_email, handyman_id, job_name",
-      )
+      .select("id, total_amount, status, client_name, handyman_id, job_name")
       .eq("id", quoteId)
-      .single();
+      .maybeSingle();
 
-    if (quoteErr || !quote) {
+    if (quoteErr) {
+      console.error("create-checkout-session select", quoteErr.message);
+      return jsonResponse({ error: "Quote not found", detail: quoteErr.message }, 404);
+    }
+    if (!quote) {
       return jsonResponse({ error: "Quote not found" }, 404);
     }
 
-    const paidStatuses = ["accepted", "approved", "deposit_paid", "paid"];
-    if (paidStatuses.includes((quote.status || "").toLowerCase())) {
-      return jsonResponse({ error: "Deposit already paid for this quote" }, 409);
+    const status = (quote.status || "").toLowerCase();
+    if (BLOCKED_STATUSES.has(status)) {
+      return jsonResponse(
+        {
+          error: status === "declined"
+            ? "Quote was declined"
+            : "Deposit already paid for this quote",
+        },
+        409,
+      );
     }
 
-    if ((quote.status || "").toLowerCase() === "declined") {
-      return jsonResponse({ error: "Quote was declined" }, 409);
-    }
-
-    const depositDollars = depositFromTotal(quote.total_amount);
+    const depositDollars = depositFromTotal(Number(quote.total_amount));
     const amountCents = toCents(depositDollars);
     if (amountCents < 50) {
-      // Stripe minimum is typically $0.50 USD
       return jsonResponse({ error: "Deposit amount too small" }, 400);
     }
 
-    // Optional: load handyman Connect account
     let stripeAccountId: string | null = null;
     if (quote.handyman_id) {
       const { data: profile } = await supabase
@@ -79,17 +93,17 @@ Deno.serve(async (req) => {
       httpClient: Stripe.createFetchHttpClient(),
     });
 
+    const base = publicQuoteUrl.replace(/\/$/, "");
     const successUrl =
-      `${publicQuoteUrl.replace(/\/$/, "")}/success?session_id={CHECKOUT_SESSION_ID}`;
+      `${base}/success?session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl =
-      `${publicQuoteUrl.replace(/\/$/, "")}/cancel?id=${encodeURIComponent(quoteId)}`;
+      `${base}/cancel?id=${encodeURIComponent(quoteId)}`;
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "payment",
       success_url: successUrl,
       cancel_url: cancelUrl,
       client_reference_id: quoteId,
-      customer_email: quote.client_email || undefined,
       metadata: {
         quote_id: quoteId,
         handyman_id: quote.handyman_id || "",
@@ -104,7 +118,8 @@ Deno.serve(async (req) => {
             unit_amount: amountCents,
             product_data: {
               name: `Deposit — ${quote.job_name || "Service quote"}`,
-              description: `50% deposit for quote ${quoteId.slice(0, 8)} (${quote.client_name || "client"})`,
+              description:
+                `50% deposit for quote ${quoteId.slice(0, 8)} (${quote.client_name || "client"})`,
             },
           },
         },
@@ -117,7 +132,6 @@ Deno.serve(async (req) => {
       },
     };
 
-    // Destination charge to connected account (platform fee optional)
     const useConnect = Deno.env.get("STRIPE_CONNECT") === "true";
     if (useConnect && stripeAccountId) {
       const feePercent = Number(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "0");
@@ -132,7 +146,7 @@ Deno.serve(async (req) => {
     const session = await stripe.checkout.sessions.create(sessionParams);
 
     // Soft-mark as sent if still draft (client opened pay flow)
-    if ((quote.status || "").toLowerCase() === "draft") {
+    if (status === "draft") {
       await supabase.from("quotes").update({ status: "sent" }).eq("id", quoteId);
     }
 
