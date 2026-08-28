@@ -1,6 +1,6 @@
 /**
  * GET  /functions/v1/public-quote?id=<quote_uuid>
- * POST /functions/v1/public-quote  { quote_id, action: "decline" }
+ * POST /functions/v1/public-quote  { quote_id, action: "decline" | "accept", accepted_by_name? }
  *
  * Public read of a quote for the Vercel client page.
  * Uses service role; does not depend on optional columns that may be missing.
@@ -15,7 +15,7 @@ import { notifyHandymanPush } from "../_shared/expo-push.ts";
 
 /** Core columns + trust fields (graceful if migration not applied yet). */
 const QUOTE_CORE =
-  "id, client_id, client_name, client_phone, job_name, notes, total_amount, status, created_at, photos, handyman_id, inclusions, exclusions, warranty_text, deposit_percent, valid_until";
+  "id, client_id, client_name, client_phone, job_name, notes, total_amount, status, created_at, photos, handyman_id, inclusions, exclusions, warranty_text, deposit_percent, valid_until, acceptance_mode, accepted_at, accepted_by_name";
 
 const QUOTE_CORE_MINIMAL =
   "id, client_id, client_name, client_phone, job_name, notes, total_amount, status, created_at, photos, handyman_id";
@@ -33,8 +33,65 @@ Deno.serve(async (req) => {
       const quoteId = body.quote_id as string | undefined;
       const action = (body.action as string | undefined)?.toLowerCase();
 
-      if (!quoteId || action !== "decline") {
-        return jsonResponse({ error: "quote_id and action=decline required" }, 400);
+      if (!quoteId || (action !== "decline" && action !== "accept")) {
+        return jsonResponse({ error: "quote_id and action=decline|accept required" }, 400);
+      }
+
+      if (action === "accept") {
+        const acceptedBy = (body.accepted_by_name as string | undefined)?.trim() || null;
+
+        const { data: quote, error } = await supabase
+          .from("quotes")
+          .select("id, status, client_name, job_name, handyman_id, total_amount, acceptance_mode")
+          .eq("id", quoteId)
+          .maybeSingle();
+
+        if (error || !quote) {
+          return jsonResponse({ error: "Quote not found", detail: error?.message }, 404);
+        }
+
+        const status = (quote.status || "").toLowerCase();
+        if (["declined"].includes(status)) {
+          return jsonResponse({ error: "Quote was declined" }, 409);
+        }
+        if (["accepted", "approved", "deposit_paid", "paid"].includes(status)) {
+          return jsonResponse({ success: true, status: quote.status, already: true });
+        }
+
+        const mode = (quote.acceptance_mode || "deposit").toLowerCase();
+        if (mode !== "accept") {
+          return jsonResponse({
+            error: "This quote requires a deposit payment to accept",
+            acceptance_mode: mode,
+          }, 409);
+        }
+
+        if (!acceptedBy || acceptedBy.length < 2) {
+          return jsonResponse({ error: "Please type your full name to accept" }, 400);
+        }
+
+        const { error: upErr } = await supabase
+          .from("quotes")
+          .update({
+            status: "accepted",
+            accepted_at: new Date().toISOString(),
+            accepted_by_name: acceptedBy,
+          })
+          .eq("id", quoteId);
+
+        if (upErr) throw upErr;
+
+        const client = quote.client_name || "A client";
+        const job = quote.job_name || "quote";
+        await notifyHandymanPush(
+          supabase,
+          quote.handyman_id,
+          "Quote accepted",
+          `${client} accepted "${job}" (no deposit required)`,
+          { quote_id: quoteId, type: "quote_accepted" },
+        );
+
+        return jsonResponse({ success: true, status: "accepted" });
       }
 
       const { data: quote, error } = await supabase
@@ -69,7 +126,7 @@ Deno.serve(async (req) => {
         supabase,
         quote.handyman_id,
         "Quote declined",
-        `${client} declined “${job}”.`,
+        `${client} declined "${job}".`,
         { quoteId, type: "declined", status: "declined" },
       );
 
@@ -81,48 +138,37 @@ Deno.serve(async (req) => {
     }
 
     const url = new URL(req.url);
-    const id = (url.searchParams.get("id") || "").trim();
+    const id = url.searchParams.get("id");
     if (!id) {
-      return jsonResponse({ success: false, error: "id required" }, 400);
+      return jsonResponse({ error: "id required" }, 400);
     }
 
     let quote: Record<string, unknown> | null = null;
+    let selectError: { message: string } | null = null;
 
-    const full = await supabase
-      .from("quotes")
-      .select(QUOTE_CORE)
-      .eq("id", id)
-      .maybeSingle();
-
-    if (!full.error && full.data) {
-      quote = full.data;
-    } else {
-      if (full.error) {
-        console.warn("public-quote full select", full.error.message);
+    {
+      const res = await supabase.from("quotes").select(QUOTE_CORE).eq("id", id).maybeSingle();
+      if (!res.error && res.data) {
+        quote = res.data;
+      } else {
+        selectError = res.error;
+        const res2 = await supabase.from("quotes").select(QUOTE_CORE_MINIMAL).eq("id", id).maybeSingle();
+        if (!res2.error && res2.data) {
+          quote = res2.data;
+        } else if (res2.error) {
+          selectError = res2.error;
+        }
       }
-      const minimal = await supabase
-        .from("quotes")
-        .select(QUOTE_CORE_MINIMAL)
-        .eq("id", id)
-        .maybeSingle();
-      if (minimal.error) {
-        console.error("public-quote select", minimal.error);
-        return jsonResponse(
-          { success: false, error: "Quote not found", detail: minimal.error.message },
-          404,
-        );
-      }
-      if (!minimal.data) {
-        return jsonResponse({ success: false, error: "Quote not found" }, 404);
-      }
-      quote = minimal.data;
     }
 
     if (!quote) {
-      return jsonResponse({ success: false, error: "Quote not found" }, 404);
+      return jsonResponse(
+        { error: "Quote not found", detail: selectError?.message },
+        404,
+      );
     }
 
-    let line_items: Array<Record<string, unknown>> = [];
+    let line_items: Record<string, unknown>[] = [];
     const { data: items, error: itemsError } = await supabase
       .from("quote_line_items")
       .select("id, description, quantity, unit_price, is_labor, photo_url")
@@ -140,7 +186,6 @@ Deno.serve(async (req) => {
       handyman = await loadHandyman(supabase, quote.handyman_id as string);
     }
 
-    // Fill trust fields from profile defaults when quote snapshot is empty
     const inclusions =
       (quote.inclusions as string) ||
       (handyman.default_inclusions as string) ||
@@ -183,6 +228,10 @@ Deno.serve(async (req) => {
         warranty_text,
         deposit_percent,
         valid_until: quote.valid_until ?? null,
+        acceptance_mode:
+          (quote.acceptance_mode as string) === "accept" ? "accept" : "deposit",
+        accepted_at: quote.accepted_at ?? null,
+        accepted_by_name: quote.accepted_by_name ?? null,
         amount_paid,
         balance_due,
         line_items,
