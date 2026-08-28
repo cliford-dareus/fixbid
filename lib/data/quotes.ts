@@ -1,5 +1,6 @@
 import {supabase} from '@/lib/supabase';
 import {mapQuoteRow, quoteUpdatesToDb} from './mappers';
+import {recordRevision, snapshotFromQuote} from './revisions';
 import {err, ok, type Result} from './result';
 import type {CreateQuoteInput, Quote} from './types';
 
@@ -111,7 +112,10 @@ export async function updateQuote(
   }
 }
 
-/** Replace all line items and update total (for revise-and-resend). */
+/**
+ * Replace all line items and update total (for revise-and-resend).
+ * Records an immutable revision snapshot of the *previous* state first.
+ */
 export async function replaceLineItems(
   quoteId: string,
   lineItems: Array<{
@@ -122,8 +126,34 @@ export async function replaceLineItems(
     photo_url?: string | null;
   }>,
   totalAmount: number,
+  opts?: {reason?: string; note?: string | null; newStatus?: string},
 ): Promise<Result<Quote>> {
   try {
+    const before = await getQuote(quoteId);
+    if (!before.ok) return before;
+
+    const prev = before.data;
+    const newStatus = opts?.newStatus ?? 'draft';
+    const reason = opts?.reason ?? 'revise';
+
+    if (prev.handyman_id) {
+      const rev = await recordRevision({
+        quoteId,
+        handymanId: prev.handyman_id,
+        reason,
+        previousStatus: prev.status,
+        newStatus,
+        previousTotal: prev.total_amount,
+        newTotal: totalAmount,
+        snapshot: snapshotFromQuote(prev),
+        note: opts?.note ?? null,
+      });
+      if (!rev.ok) {
+        console.warn('revision record failed', rev.error);
+        // non-fatal — still apply the edit
+      }
+    }
+
     const {error: delErr} = await supabase
       .from('quote_line_items')
       .delete()
@@ -147,7 +177,7 @@ export async function replaceLineItems(
       .from('quotes')
       .update({
         total_amount: totalAmount,
-        status: 'draft',
+        status: newStatus,
       })
       .eq('id', quoteId);
     if (upErr) return err(upErr);
