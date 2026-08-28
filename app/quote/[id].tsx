@@ -8,12 +8,11 @@ import {useProfile} from '@/context/profile-context';
 import {useQuote} from '@/context/quote-context';
 import {jobsApi, quotesApi, type Quote} from '@/lib/data';
 import {pdfHeaderHtml} from '@/lib/branding';
+import {publicQuoteUrl} from '@/lib/config';
 import * as Clipboard from 'expo-clipboard';
 import {Feather} from '@expo/vector-icons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import useThemedNavigation from '@/hooks/use-navigation-theme';
-
-const PUBLIC_QUOTE_BASE = 'https://fixbid-ten.vercel.app';
 
 const PAID_STATUSES = ['accepted', 'approved', 'deposit_paid', 'paid'];
 
@@ -51,7 +50,7 @@ export default function QuoteDetail() {
   const sendToClient = async () => {
     if (!quote) return;
 
-    const publicLink = `${PUBLIC_QUOTE_BASE}/?id=${quote.id}`;
+    const publicLink = publicQuoteUrl(quote.id);
     setSending(true);
 
     try {
