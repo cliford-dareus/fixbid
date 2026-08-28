@@ -14,10 +14,14 @@
  * Deploy with --no-verify-jwt so Stripe can POST without a user JWT.
  */
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
-import { serviceClient } from "../_shared/supabase.ts";
+import {
+  balanceDue,
+  serviceClient,
+  sumPaidForQuote,
+} from "../_shared/supabase.ts";
 import { notifyHandymanPush } from "../_shared/expo-push.ts";
 
-const PAID = new Set(["accepted", "approved", "deposit_paid", "paid"]);
+const DEPOSIT_PAID = new Set(["accepted", "approved", "deposit_paid", "paid"]);
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -113,6 +117,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       ? session.payment_intent
       : session.payment_intent?.id ?? null;
 
+  const paymentTypeRaw = (session.metadata?.payment_type || "deposit").toLowerCase();
+  const paymentType = paymentTypeRaw === "balance" || paymentTypeRaw === "final"
+    ? "balance"
+    : "deposit";
+
   await settleQuotePayment({
     quoteId,
     amountDollars,
@@ -121,6 +130,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     customerEmail: session.customer_details?.email ?? session.customer_email ??
       null,
     source: "checkout.session.completed",
+    paymentType,
   });
 }
 
@@ -131,6 +141,11 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
     return;
   }
 
+  const paymentTypeRaw = (pi.metadata?.payment_type || "deposit").toLowerCase();
+  const paymentType = paymentTypeRaw === "balance" || paymentTypeRaw === "final"
+    ? "balance"
+    : "deposit";
+
   await settleQuotePayment({
     quoteId,
     amountDollars: (pi.amount_received || pi.amount) / 100,
@@ -138,6 +153,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
     stripePaymentIntentId: pi.id,
     customerEmail: null,
     source: "payment_intent.succeeded",
+    paymentType,
   });
 }
 
@@ -148,6 +164,7 @@ interface SettleArgs {
   stripePaymentIntentId: string | null;
   customerEmail: string | null;
   source: string;
+  paymentType: "deposit" | "balance";
 }
 
 async function settleQuotePayment(args: SettleArgs) {
@@ -159,6 +176,7 @@ async function settleQuotePayment(args: SettleArgs) {
     stripePaymentIntentId,
     customerEmail,
     source,
+    paymentType,
   } = args;
 
   const { data: quote, error } = await supabase
@@ -173,7 +191,8 @@ async function settleQuotePayment(args: SettleArgs) {
     throw new Error(`Quote not found: ${quoteId}`);
   }
 
-  const alreadyPaid = PAID.has((quote.status || "").toLowerCase());
+  const statusLower = (quote.status || "").toLowerCase();
+  const alreadyDepositSettled = DEPOSIT_PAID.has(statusLower);
 
   if (stripePaymentIntentId) {
     const { data: existing } = await supabase
@@ -183,12 +202,6 @@ async function settleQuotePayment(args: SettleArgs) {
       .maybeSingle();
     if (existing) {
       console.log("Payment already recorded", stripePaymentIntentId);
-      if (!alreadyPaid) {
-        await supabase
-          .from("quotes")
-          .update({ status: "accepted" })
-          .eq("id", quoteId);
-      }
       return;
     }
   }
@@ -199,7 +212,7 @@ async function settleQuotePayment(args: SettleArgs) {
     client_id: quote.client_id,
     amount: amountDollars,
     currency: "usd",
-    type: "deposit",
+    type: paymentType,
     status: "succeeded",
     stripe_session_id: stripeSessionId,
     stripe_payment_intent_id: stripePaymentIntentId,
@@ -212,21 +225,34 @@ async function settleQuotePayment(args: SettleArgs) {
     console.warn("payments insert skipped/failed:", payErr.message);
   }
 
-  if (!alreadyPaid) {
-    const { error: statusErr } = await supabase
+  const paidAfter = await sumPaidForQuote(supabase, quoteId);
+  const remaining = balanceDue(Number(quote.total_amount), paidAfter);
+  const fullyPaid = remaining < 0.5;
+
+  // Quote status: deposit → accepted; full pay → paid
+  if (fullyPaid) {
+    await supabase.from("quotes").update({ status: "paid" }).eq("id", quoteId);
+  } else if (paymentType === "deposit" && !alreadyDepositSettled) {
+    await supabase
       .from("quotes")
       .update({ status: "accepted" })
       .eq("id", quoteId);
-    if (statusErr) throw statusErr;
   }
 
   const { data: existingJob } = await supabase
     .from("jobs")
-    .select("id")
+    .select("id, payments, status")
     .eq("quote_id", quoteId)
     .maybeSingle();
 
-  if (!existingJob && quote.handyman_id) {
+  const paymentEntry = {
+    amount: amountDollars,
+    type: paymentType,
+    stripe_payment_intent_id: stripePaymentIntentId,
+    at: new Date().toISOString(),
+  };
+
+  if (!existingJob && quote.handyman_id && paymentType === "deposit") {
     const { error: jobErr } = await supabase.from("jobs").insert({
       job_name: quote.job_name || "Job from quote",
       client_id: quote.client_id,
@@ -238,14 +264,7 @@ async function settleQuotePayment(args: SettleArgs) {
       material_cost: 0,
       before_photos: [],
       after_photos: [],
-      payments: [
-        {
-          amount: amountDollars,
-          type: "deposit",
-          stripe_payment_intent_id: stripePaymentIntentId,
-          at: new Date().toISOString(),
-        },
-      ],
+      payments: [paymentEntry],
       status: "schedule",
       scheduled_date: null,
       completed_date: null,
@@ -254,16 +273,32 @@ async function settleQuotePayment(args: SettleArgs) {
     if (jobErr) {
       console.error("job create failed", jobErr);
     }
+  } else if (existingJob) {
+    const prev = Array.isArray(existingJob.payments) ? existingJob.payments : [];
+    const nextPayments = [...prev, paymentEntry];
+    const jobPatch: Record<string, unknown> = { payments: nextPayments };
+    if (fullyPaid) {
+      jobPatch.status = "paid";
+    }
+    await supabase.from("jobs").update(jobPatch).eq("id", existingJob.id);
   }
 
-  // Push only on first successful settlement (not Stripe retries of same PI)
-  if (!alreadyPaid) {
-    const client = quote.client_name || "A client";
-    const job = quote.job_name || "quote";
-    const amt = Number(amountDollars).toLocaleString(undefined, {
-      style: "currency",
-      currency: "USD",
-    });
+  const client = quote.client_name || "A client";
+  const job = quote.job_name || "quote";
+  const amt = Number(amountDollars).toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+  });
+
+  if (paymentType === "balance" || fullyPaid) {
+    await notifyHandymanPush(
+      supabase,
+      quote.handyman_id,
+      fullyPaid ? "Balance paid — job fully paid" : "Balance payment received",
+      `${client} paid ${amt} balance on “${job}”.`,
+      { quoteId, type: "balance_paid", status: fullyPaid ? "paid" : statusLower },
+    );
+  } else if (!alreadyDepositSettled) {
     await notifyHandymanPush(
       supabase,
       quote.handyman_id,
@@ -273,5 +308,7 @@ async function settleQuotePayment(args: SettleArgs) {
     );
   }
 
-  console.log(`Settled quote ${quoteId} via ${source} amount=${amountDollars}`);
+  console.log(
+    `Settled quote ${quoteId} type=${paymentType} via ${source} amount=${amountDollars} remaining=${remaining}`,
+  );
 }

@@ -6,7 +6,11 @@
  * Uses service role; does not depend on optional columns that may be missing.
  */
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { serviceClient } from "../_shared/supabase.ts";
+import {
+  balanceDue,
+  serviceClient,
+  sumPaidForQuote,
+} from "../_shared/supabase.ts";
 import { notifyHandymanPush } from "../_shared/expo-push.ts";
 
 /** Core columns + trust fields (graceful if migration not applied yet). */
@@ -156,6 +160,9 @@ Deno.serve(async (req) => {
         ? Number(handyman.deposit_percent)
         : 50;
 
+    const amount_paid = await sumPaidForQuote(supabase, id as string);
+    const balance_due = balanceDue(Number(quote.total_amount), amount_paid);
+
     return jsonResponse({
       success: true,
       quote: {
@@ -176,6 +183,8 @@ Deno.serve(async (req) => {
         warranty_text,
         deposit_percent,
         valid_until: quote.valid_until ?? null,
+        amount_paid,
+        balance_due,
         line_items,
       },
       handyman,
