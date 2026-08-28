@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -20,16 +20,29 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
-import {quotesApi} from '@/lib/data';
+import {quotesApi, type DraftLineItem} from '@/lib/data';
 import {uploadPhotoFromUri} from '@/lib/upload-photo';
 import {publicQuoteUrl} from '@/lib/config';
 import {estimateJobCost, estimateToDraftLineItems} from '@/lib/ai-estimate';
 import {Feather} from '@expo/vector-icons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {calculateJobCost, JOB_TEMPLATES} from '@/data/templates';
+import {
+  calculateJobCost,
+  JOB_TEMPLATES,
+  QUICK_TEMPLATES,
+  templateToLineItems,
+  type JobTemplate,
+} from '@/data/templates';
 import useThemedNavigation from '@/hooks/use-navigation-theme';
 import {useProfile} from '@/context/profile-context';
 import {useNewQuoteDraft} from '@/hooks/use-new-quote-draft';
+import {notifyError, notifyInfo, notifySuccess, notifyWarning} from '@/lib/feedback';
+
+type UndoSnapshot = {
+  jobName: string;
+  notes: string;
+  lineItems: DraftLineItem[];
+};
 
 export default function NewQuote() {
   const router = useRouter();
@@ -48,12 +61,21 @@ export default function NewQuote() {
   const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
   const [postSaveVisible, setPostSaveVisible] = useState(false);
   const [postSaveBusy, setPostSaveBusy] = useState(false);
+  const undoRef = useRef<UndoSnapshot | null>(null);
+
+  const hourlyRate =
+    profile?.hourly_rate && Number(profile.hourly_rate) > 0
+      ? Number(profile.hourly_rate)
+      : null;
+
+  const recentClients = clients.slice(0, 8);
 
   useEffect(() => {
     (async () => {
       const {status} = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Camera access is required to take before photos.');
+        // Soft: don't block with modal on every open
+        console.warn('Camera permission not granted');
       }
     })();
   }, []);
@@ -93,11 +115,59 @@ export default function NewQuote() {
     draft.lineItems.length > 0 &&
     Boolean(draft.jobName.trim());
 
+  const pushUndo = useCallback(() => {
+    undoRef.current = {
+      jobName: draft.jobName,
+      notes: draft.notes,
+      lineItems: draft.lineItems.map((li) => ({...li})),
+    };
+  }, [draft.jobName, draft.notes, draft.lineItems]);
+
+  const restoreUndo = useCallback(() => {
+    const snap = undoRef.current;
+    if (!snap) return;
+    draft.applyTemplateDraft({
+      jobName: snap.jobName,
+      notes: snap.notes,
+      lineItems: snap.lineItems,
+    });
+    undoRef.current = null;
+    notifyInfo('Restored previous line items');
+  }, [draft]);
+
+  const applyTemplate = useCallback(
+    (template: JobTemplate, opts?: {silent?: boolean}) => {
+      pushUndo();
+      const cost = calculateJobCost(template, 1.2, hourlyRate);
+      const lineItems = templateToLineItems(template, hourlyRate);
+      const noteParts = [
+        template.description,
+        template.commonUpsells?.length
+          ? `Upsells: ${template.commonUpsells.slice(0, 3).join(', ')}`
+          : '',
+      ].filter(Boolean);
+      draft.applyTemplateDraft({
+        jobName: template.name,
+        totalAmount: cost.suggested,
+        notes: noteParts.join('\n'),
+        lineItems,
+      });
+      setStep('details');
+      if (!opts?.silent) {
+        notifySuccess(
+          template.name,
+          `~$${cost.suggested} · ${template.timeEstimateHours}h labor · Edit anytime`,
+        );
+      }
+    },
+    [draft, hourlyRate, pushUndo],
+  );
+
   const pickPhoto = async () => {
     if (Platform.OS !== 'web') {
       const {status} = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow photo access to upload job photos.');
+        notifyWarning('Permission needed', 'Allow photo access to upload job photos.');
         return;
       }
     }
@@ -116,7 +186,7 @@ export default function NewQuote() {
     if (Platform.OS !== 'web') {
       const {status} = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow camera access to take job photos.');
+        notifyWarning('Permission needed', 'Allow camera access to take job photos.');
         return;
       }
       const result = await ImagePicker.launchCameraAsync({quality: 0.8});
@@ -124,21 +194,23 @@ export default function NewQuote() {
         draft.setPhotos((prev) => [...prev, result.assets[0].uri].slice(0, 5));
       }
     } else {
-      Alert.alert('Camera not available on web', 'Use the upload button instead.');
+      notifyInfo('Camera not available on web', 'Use the gallery button instead.');
     }
   };
 
   const resetForm = () => {
     draft.reset();
+    undoRef.current = null;
   };
 
+  /** Auto-apply AI estimate (no confirmation dialog). Undo via toast path. */
   const handleAiEstimate = async () => {
     if (!draft.jobName.trim() && draft.photos.length === 0) {
-      Alert.alert('Need input', 'Add a short description and/or job photos for an AI estimate.');
+      notifyWarning('Need input', 'Add a short description and/or job photos.');
       return;
     }
     if (!user?.id) {
-      Alert.alert('Not logged in');
+      notifyError('Not logged in');
       return;
     }
 
@@ -161,62 +233,54 @@ export default function NewQuote() {
       const estimate = await estimateJobCost({
         description: draft.jobName.trim(),
         photoUrls,
-        hourlyRate: profile?.hourly_rate,
+        hourlyRate: hourlyRate ?? profile?.hourly_rate,
         region: region || undefined,
       });
 
+      pushUndo();
+      const noteParts = [
+        estimate.notes,
+        estimate.upsells?.length
+          ? `Suggested upsells: ${estimate.upsells.join(', ')}`
+          : '',
+      ].filter(Boolean);
+      draft.applyTemplateDraft({
+        jobName: estimate.job_name || draft.jobName,
+        totalAmount: estimate.suggested,
+        notes: noteParts.join('\n') || draft.notes,
+        lineItems: estimateToDraftLineItems(estimate),
+      });
+      setStep('details');
+
       const confPct = Math.round((estimate.confidence || 0) * 100);
-      Alert.alert(
-        estimate.job_name || 'AI estimate',
-        `${estimate.summary || ''}\n\nSuggested total: $${estimate.suggested}\nLabor ~${estimate.labor_hours}h @ $${estimate.labor_rate}/hr\nConfidence: ${confPct}%\n\nApply these line items to the quote?`,
-        [
-          {text: 'Cancel', style: 'cancel'},
-          {
-            text: 'Apply estimate',
-            onPress: () => {
-              const noteParts = [
-                estimate.notes,
-                estimate.upsells?.length
-                  ? `Suggested upsells: ${estimate.upsells.join(', ')}`
-                  : '',
-              ].filter(Boolean);
-              draft.applyTemplateDraft({
-                jobName: estimate.job_name,
-                totalAmount: estimate.suggested,
-                notes: noteParts.join('\n') || draft.notes,
-                lineItems: estimateToDraftLineItems(estimate),
-              });
-              setStep('details');
-            },
-          },
-        ],
+      notifySuccess(
+        'AI estimate applied',
+        `$${estimate.suggested} · ~${estimate.labor_hours}h · ${confPct}% confidence. Shake up line items if needed.`,
       );
     } catch (e: any) {
       console.error(e);
-      Alert.alert(
+      notifyError(
         'AI estimate failed',
-        e?.message || 'Check XAI_API_KEY on the edge function, or use a template instead.',
+        e?.message || 'Try a quick template instead.',
       );
     } finally {
       setEstimating(false);
     }
   };
 
-  const handleSave = async () => {
+  const persistQuote = async (status: 'draft' | 'sent'): Promise<string | null> => {
     if (!resolvedClientName || draft.lineItems.length === 0) {
-      Alert.alert('Error', 'Client name and at least one line item are required');
-      return;
+      notifyWarning('Missing info', 'Client name and at least one line item are required');
+      return null;
     }
-
     const activeJobName = draft.jobName.trim();
     if (!activeJobName) {
-      Alert.alert('Error', 'Job name is required');
-      return;
+      notifyWarning('Missing info', 'Job name is required');
+      return null;
     }
-
     if (!user?.id) {
-      Alert.alert('Not logged in');
-      return;
+      notifyError('Not logged in');
+      return null;
     }
 
     setSaving(true);
@@ -257,7 +321,7 @@ export default function NewQuote() {
         notes: draft.notes || null,
         photos: photoUrls,
         total_amount: total,
-        status: 'draft',
+        status,
         line_items: linePayload,
       });
 
@@ -269,13 +333,49 @@ export default function NewQuote() {
         // non-fatal
       }
 
-      setSavedQuoteId(result.data.id);
-      setPostSaveVisible(true);
+      return result.data.id;
     } catch (error: any) {
       console.error(error);
-      Alert.alert('Save Failed', error.message || 'Please try again');
+      notifyError('Save failed', error.message || 'Please try again');
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    const id = await persistQuote('draft');
+    if (!id) return;
+    setSavedQuoteId(id);
+    setPostSaveVisible(true);
+  };
+
+  /** Save as sent + share public link in one gesture. */
+  const handleSaveAndSend = async () => {
+    const id = await persistQuote('sent');
+    if (!id) return;
+    setSavedQuoteId(id);
+    setPostSaveBusy(true);
+    try {
+      const publicLink = publicQuoteUrl(id);
+      await Clipboard.setStringAsync(publicLink);
+      try {
+        await Share.share({
+          message: `Here's your FixBid quote: ${publicLink}`,
+          url: publicLink,
+          title: `Quote for ${resolvedClientName}`,
+        });
+      } catch {
+        // dismissed
+      }
+      notifySuccess('Quote sent', 'Link copied to clipboard');
+      resetForm();
+      router.back();
+    } catch (e: any) {
+      notifyError('Could not send', e.message);
+      setPostSaveVisible(true);
+    } finally {
+      setPostSaveBusy(false);
     }
   };
 
@@ -301,10 +401,10 @@ export default function NewQuote() {
       } catch {
         // dismissed
       }
-      Alert.alert('Link ready', 'Status set to Sent. Link is on the clipboard.');
+      notifySuccess('Link ready', 'Status set to Sent');
       finishAndLeave();
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Could not send quote');
+      notifyError('Error', e.message || 'Could not send quote');
     } finally {
       setPostSaveBusy(false);
     }
@@ -328,11 +428,11 @@ export default function NewQuote() {
 
   const generateAndSharePDF = async () => {
     if (!resolvedClientName) {
-      Alert.alert('Missing Info', 'Please select or enter a client name');
+      notifyWarning('Missing info', 'Please select or enter a client name');
       return;
     }
     if (draft.lineItems.length === 0) {
-      Alert.alert('No Items', 'Add at least one line item');
+      notifyWarning('No items', 'Add at least one line item');
       return;
     }
 
@@ -406,11 +506,11 @@ export default function NewQuote() {
           UTI: 'com.adobe.pdf',
         });
       } else {
-        Alert.alert('Sharing not available', 'PDF saved to cache but cannot share on this device.');
+        notifyWarning('Sharing not available', 'PDF saved to cache.');
       }
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Failed to generate PDF. Please try again.');
+      notifyError('PDF failed', 'Could not generate PDF');
     }
   };
 
@@ -426,42 +526,10 @@ export default function NewQuote() {
         lowerName.includes(t.category.toLowerCase()),
     );
     if (match) {
-      const cost = calculateJobCost(match);
-      Alert.alert(
-        `Suggested: ${match.name}`,
-        `Template match found!\n\nEstimated: $${cost.suggested}\nTime: ${match.timeEstimateHours}h\n\nApply this template?`,
-        [
-          {text: 'No thanks', style: 'cancel', onPress: () => setStep('details')},
-          {
-            text: 'Use template',
-            onPress: () => {
-              draft.applyTemplateDraft({
-                jobName: match.name,
-                totalAmount: cost.suggested,
-                lineItems: [
-                  {
-                    description: `Labor (${match.timeEstimateHours}h @ $${match.laborRate}/hr)`,
-                    quantity: 1,
-                    unitPrice: match.timeEstimateHours * match.laborRate,
-                    isLabor: true,
-                  },
-                  ...match.materials
-                    .filter((m) => m.qty > 0)
-                    .map((m) => ({
-                      description: m.name,
-                      quantity: m.qty,
-                      unitPrice: m.avgCost,
-                      isLabor: false,
-                    })),
-                ],
-              });
-              setStep('details');
-            },
-          },
-        ],
-      );
+      applyTemplate(match);
     } else {
       setStep('details');
+      notifyInfo('No template match', 'Build the quote manually or try AI estimate.');
     }
   };
 
@@ -526,6 +594,68 @@ export default function NewQuote() {
     </Modal>
   );
 
+  const clientChips = (
+    <View className="gap-2">
+      <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
+        Client {canSave || step === 'details' ? '*' : '(optional now)'}
+      </Text>
+      {recentClients.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {recentClients.map((c) => {
+            const selected = draft.selectedClientId === c.id;
+            return (
+              <TouchableOpacity
+                key={c.id}
+                className="mr-2 rounded-full border px-3.5 py-2"
+                style={{
+                  backgroundColor: selected ? colors.primary : colors.background,
+                  borderColor: selected ? colors.primary : colors.border,
+                }}
+                onPress={() =>
+                  draft.setSelectedClientId(selected ? null : c.id)
+                }
+              >
+                <Text
+                  className="text-sm font-semibold"
+                  style={{color: selected ? '#fff' : colors.foreground}}
+                >
+                  {c.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+      <TextInput
+        className="mb-2 rounded-[12px] border border-zinc-300 bg-card px-4 py-3 text-[15px] text-foreground"
+        value={draft.clientName}
+        onChangeText={(v) => {
+          draft.setClientName(v);
+          if (draft.selectedClientId) {
+            const selected = clients.find((c) => c.id === draft.selectedClientId);
+            if (selected && selected.name !== v) draft.setSelectedClientId(null);
+          }
+        }}
+        placeholder="Or type client name"
+        editable={!draft.selectedClientId}
+      />
+      {!draft.selectedClientId ? (
+        <TextInput
+          className="rounded-[12px] border border-zinc-300 bg-card px-4 py-3 text-[15px] text-foreground"
+          value={draft.clientPhone}
+          onChangeText={draft.setClientPhone}
+          placeholder="Phone (optional)"
+          keyboardType="phone-pad"
+        />
+      ) : (
+        <TouchableOpacity onPress={() => draft.setSelectedClientId(null)}>
+          <Text className="text-primary text-sm font-semibold">Clear selection</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  // ─── Photo / speed step ───────────────────────────────────────────
   if (step === 'photo') {
     return (
       <View className="flex-1 bg-background">
@@ -538,20 +668,26 @@ export default function NewQuote() {
             <Feather name="x" size={24} color={colors.foreground || '#111'} />
           </TouchableOpacity>
           <Text className="text-foreground text-[17px] font-bold">New Quote</Text>
-          <View className="w-6" />
+          {undoRef.current ? (
+            <TouchableOpacity onPress={restoreUndo}>
+              <Text className="text-primary text-sm font-bold">Undo</Text>
+            </TouchableOpacity>
+          ) : (
+            <View className="w-10" />
+          )}
         </View>
 
-        <ScrollView contentContainerClassName="gap-4 p-4">
-          <View className="items-center gap-3 rounded-[20px] bg-secondary-foreground p-8">
-            <Feather name="camera" size={40} color="#94A3B8" />
-            <Text className="text-[22px] font-extrabold text-white">Photo → Quote</Text>
+        <ScrollView contentContainerClassName="gap-4 p-4 pb-10">
+          <View className="items-center gap-2 rounded-[20px] bg-secondary-foreground p-6">
+            <Feather name="zap" size={32} color="#FBBF24" />
+            <Text className="text-[20px] font-extrabold text-white">Quote in 60 seconds</Text>
             <Text className="text-center text-sm leading-5 text-slate-400">
-              Add photos and a short description. Get an AI cost estimate or match a template.
+              Photo or quick template → tweak → send link
             </Text>
           </View>
 
           {draft.photos.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="my-2">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {draft.photos.map((uri, i) => (
                 <View key={i} className="relative mr-2.5">
                   <Image
@@ -591,15 +727,36 @@ export default function NewQuote() {
 
           <View className="gap-2">
             <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
-              Job description
+              What's the job?
             </Text>
             <TextInput
               className="rounded-[12px] border border-zinc-200 bg-card px-4 py-3 text-[15px] text-foreground"
               value={draft.jobName}
               onChangeText={draft.setJobName}
               placeholder="e.g. Faucet replacement, Drywall patch..."
+              returnKeyType="done"
             />
           </View>
+
+          <View className="gap-2">
+            <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
+              Quick templates
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {QUICK_TEMPLATES.map((t) => (
+                <TouchableOpacity
+                  key={t.id}
+                  className="mr-2 rounded-full border border-zinc-200 bg-card px-3.5 py-2.5"
+                  onPress={() => applyTemplate(t)}
+                  activeOpacity={0.85}
+                >
+                  <Text className="text-foreground text-[13px] font-semibold">{t.name.split('(')[0].trim()}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {clientChips}
 
           <TouchableOpacity
             className="flex-row items-center justify-center gap-2 rounded-[14px] bg-primary p-4"
@@ -612,7 +769,7 @@ export default function NewQuote() {
             ) : (
               <>
                 <Feather name="cpu" size={18} color="#fff" />
-                <Text className="text-base font-bold text-white">AI cost estimate</Text>
+                <Text className="text-base font-bold text-white">AI estimate & continue</Text>
               </>
             )}
           </TouchableOpacity>
@@ -624,17 +781,22 @@ export default function NewQuote() {
             disabled={estimating}
           >
             <Text className="text-foreground text-base font-bold">
-              {draft.photos.length > 0 || draft.jobName
-                ? 'Suggest template instead'
-                : 'Skip to quote builder'}
+              {draft.jobName ? 'Match template from description' : 'Skip to quote builder'}
             </Text>
             <Feather name="arrow-right" size={18} color={colors.foreground || '#111'} />
           </TouchableOpacity>
+
+          {hourlyRate ? (
+            <Text className="text-center text-[12px] text-muted-foreground">
+              Using your rate: ${hourlyRate}/hr
+            </Text>
+          ) : null}
         </ScrollView>
       </View>
     );
   }
 
+  // ─── Details step ─────────────────────────────────────────────────
   const footerPad = Math.max(insets.bottom, 12);
 
   return (
@@ -652,18 +814,25 @@ export default function NewQuote() {
           <Feather name="arrow-left" size={24} color={colors.foreground || '#111'} />
         </TouchableOpacity>
         <Text className="text-foreground text-[17px] font-bold">Quote details</Text>
-        <TouchableOpacity onPress={handleAiEstimate} disabled={estimating} className="px-1">
-          {estimating ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <Feather name="cpu" size={22} color={colors.primary || '#f97316'} />
-          )}
-        </TouchableOpacity>
+        <View className="flex-row items-center gap-3">
+          {undoRef.current ? (
+            <TouchableOpacity onPress={restoreUndo}>
+              <Text className="text-primary text-sm font-bold">Undo</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity onPress={handleAiEstimate} disabled={estimating} className="px-1">
+            {estimating ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Feather name="cpu" size={22} color={colors.primary || '#f97316'} />
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
         className="flex-1 px-4"
-        contentContainerStyle={{paddingBottom: 140 + footerPad}}
+        contentContainerStyle={{paddingBottom: 170 + footerPad}}
         keyboardShouldPersistTaps="handled"
       >
         {draft.photos.length > 0 && (
@@ -692,67 +861,25 @@ export default function NewQuote() {
           />
         </View>
 
-        <View className="mb-4 gap-2">
-          <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
-            Client *
-          </Text>
-          {clients.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-2">
-              {clients.map((c) => (
-                <TouchableOpacity
-                  key={c.id}
-                  className="mr-2 rounded-full border border-zinc-200 px-3.5 py-2"
-                  style={{
-                    backgroundColor:
-                      draft.selectedClientId === c.id ? colors.primary : colors.background,
-                    borderColor:
-                      draft.selectedClientId === c.id ? colors.primary : colors.border,
-                  }}
-                  onPress={() =>
-                    draft.setSelectedClientId(
-                      draft.selectedClientId === c.id ? null : c.id,
-                    )
-                  }
-                >
-                  <Text
-                    className="text-sm font-semibold"
-                    style={{
-                      color: draft.selectedClientId === c.id ? '#fff' : colors.foreground,
-                    }}
-                  >
-                    {c.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
+        <View className="mb-4">{clientChips}</View>
 
-          <TextInput
-            className="mb-2 rounded-[12px] border border-zinc-300 bg-card px-4 py-3 text-[15px] text-foreground"
-            value={draft.clientName}
-            onChangeText={(v) => {
-              draft.setClientName(v);
-              if (draft.selectedClientId) {
-                const selected = clients.find((c) => c.id === draft.selectedClientId);
-                if (selected && selected.name !== v) draft.setSelectedClientId(null);
-              }
-            }}
-            placeholder="Client name"
-            editable={!draft.selectedClientId}
-          />
-          <TextInput
-            className="rounded-[12px] border border-zinc-300 bg-card px-4 py-3 text-[15px] text-foreground"
-            value={draft.clientPhone}
-            onChangeText={draft.setClientPhone}
-            placeholder="Client phone (optional)"
-            keyboardType="phone-pad"
-            editable={!draft.selectedClientId}
-          />
-          {draft.selectedClientId ? (
-            <TouchableOpacity onPress={() => draft.setSelectedClientId(null)} className="mt-1">
-              <Text className="text-primary text-sm font-semibold">Clear selection / edit name</Text>
-            </TouchableOpacity>
-          ) : null}
+        <View className="mb-3 gap-2">
+          <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
+            Quick add template
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {QUICK_TEMPLATES.map((t) => (
+              <TouchableOpacity
+                key={t.id}
+                className="mr-2 rounded-full border border-dashed border-zinc-300 px-3 py-1.5"
+                onPress={() => applyTemplate(t)}
+              >
+                <Text className="text-[12px] font-semibold text-foreground">
+                  {t.name.split('(')[0].trim()}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
 
         <View className="mb-4 gap-2">
@@ -775,14 +902,14 @@ export default function NewQuote() {
                     draft.updateLineItem(idx, 'photoUri', result.assets[0].uri);
                   }
                 }}
-                className="mt-1 h-40 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-gray-400 bg-gray-100"
+                className="mt-1 h-28 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-gray-400 bg-gray-100"
               >
                 {li.photoUri ? (
                   <Image source={{uri: li.photoUri}} className="h-full w-full" contentFit="cover" />
                 ) : (
                   <View className="items-center">
-                    <Feather name="camera" size={24} color="#6b7280" />
-                    <Text className="mt-2 text-sm text-gray-500">Tap for before photo</Text>
+                    <Feather name="camera" size={20} color="#6b7280" />
+                    <Text className="mt-1 text-xs text-gray-500">Before photo</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -833,25 +960,15 @@ export default function NewQuote() {
             Notes
           </Text>
           <TextInput
-            className="min-h-[90px] rounded-[12px] border border-zinc-300 bg-card px-4 py-3 text-[15px] text-foreground"
+            className="min-h-[80px] rounded-[12px] border border-zinc-300 bg-card px-4 py-3 text-[15px] text-foreground"
             style={{textAlignVertical: 'top'}}
             value={draft.notes}
             onChangeText={draft.setNotes}
-            placeholder="Job details, scope, special conditions..."
+            placeholder="Scope, exclusions, access notes..."
             multiline
-            numberOfLines={4}
+            numberOfLines={3}
           />
         </View>
-
-        <TouchableOpacity
-          className="mb-4 flex-row items-center justify-center gap-2 rounded-[14px] border border-zinc-300 p-3"
-          onPress={generateAndSharePDF}
-          activeOpacity={0.85}
-          disabled={saving}
-        >
-          <Feather name="share" size={18} color={colors.foreground || '#111'} />
-          <Text className="text-foreground text-base font-bold">Generate PDF</Text>
-        </TouchableOpacity>
       </ScrollView>
 
       <View
@@ -865,29 +982,48 @@ export default function NewQuote() {
           elevation: 12,
         }}
       >
-        <View className="mb-3 flex-row items-center justify-between">
+        <View className="mb-2 flex-row items-center justify-between">
           <Text className="text-muted-foreground text-sm font-semibold">Quote total</Text>
           <Text className="text-foreground text-[22px] font-extrabold tracking-tight">
             ${total.toFixed(2)}
           </Text>
         </View>
-        <TouchableOpacity
-          className={`flex-row items-center justify-center gap-2 rounded-[14px] p-4 ${
-            canSave && !saving ? 'bg-primary' : 'bg-zinc-300'
-          }`}
-          onPress={handleSave}
-          activeOpacity={0.85}
-          disabled={!canSave || saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Feather name="file-text" size={18} color="#fff" />
-              <Text className="text-base font-bold text-white">Save quote</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        <View className="flex-row gap-2">
+          <TouchableOpacity
+            className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-[14px] border border-zinc-300 p-3.5 ${
+              !canSave || saving ? 'opacity-50' : ''
+            }`}
+            onPress={handleSaveDraft}
+            activeOpacity={0.85}
+            disabled={!canSave || saving || postSaveBusy}
+          >
+            {saving && !postSaveBusy ? (
+              <ActivityIndicator color={colors.foreground} />
+            ) : (
+              <>
+                <Feather name="file-text" size={16} color={colors.foreground || '#111'} />
+                <Text className="text-foreground text-[14px] font-bold">Save draft</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            className={`flex-[1.4] flex-row items-center justify-center gap-1.5 rounded-[14px] p-3.5 ${
+              canSave && !saving ? 'bg-primary' : 'bg-zinc-300'
+            }`}
+            onPress={handleSaveAndSend}
+            activeOpacity={0.85}
+            disabled={!canSave || saving || postSaveBusy}
+          >
+            {saving || postSaveBusy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Feather name="send" size={16} color="#fff" />
+                <Text className="text-[14px] font-bold text-white">Save & send</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
