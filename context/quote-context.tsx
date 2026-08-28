@@ -9,8 +9,12 @@ import React, {
 } from 'react';
 import {Alert} from 'react-native';
 import {useAuth} from '@/context/auth-context';
-import {supabase} from '@/lib/supabase';
 import {notifyLocal} from '@/lib/notification';
+import {
+  quoteStatusMessage,
+  subscribeHandymanQuoteUpdates,
+  unsubscribeChannel,
+} from '@/lib/realtime';
 import {
   clientsApi,
   jobsApi,
@@ -26,14 +30,6 @@ import {
 
 // Re-export domain types so existing `import { Quote } from '@/context/quote-context'` keeps working
 export type {Client, DraftLineItem, Job, LineItem, Payment, Quote};
-
-const NOTIFY_STATUSES = new Set([
-  'declined',
-  'deposit_paid',
-  'accepted',
-  'approved',
-  'paid',
-]);
 
 type QuoteContextType = {
   quotes: Quote[];
@@ -71,46 +67,6 @@ type QuoteContextType = {
 };
 
 const QuoteContext = createContext<QuoteContextType | undefined>(undefined);
-
-function statusMessage(row: {
-  status?: string;
-  job_name?: string;
-  client_name?: string;
-  total_amount?: number;
-}): {title: string; body: string} | null {
-  const status = (row.status || '').toLowerCase();
-  if (!NOTIFY_STATUSES.has(status)) return null;
-
-  const job = row.job_name?.trim() || 'Quote';
-  const client = row.client_name?.trim() || 'Client';
-  const amount =
-    row.total_amount != null
-      ? `$${Number(row.total_amount).toLocaleString(undefined, {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 2,
-        })}`
-      : '';
-
-  if (status === 'declined') {
-    return {
-      title: 'Quote declined',
-      body: `${client} declined “${job}”${amount ? ` (${amount})` : ''}.`,
-    };
-  }
-
-  if (status === 'deposit_paid' || status === 'paid') {
-    return {
-      title: status === 'paid' ? 'Quote paid' : 'Deposit received',
-      body: `${client} paid on “${job}”${amount ? ` · ${amount}` : ''}.`,
-    };
-  }
-
-  // accepted / approved
-  return {
-    title: 'Quote accepted',
-    body: `${client} accepted “${job}”${amount ? ` · ${amount}` : ''}.`,
-  };
-}
 
 export function QuoteProvider({children}: {children: ReactNode}) {
   const {user} = useAuth();
@@ -178,83 +134,52 @@ export function QuoteProvider({children}: {children: ReactNode}) {
     refreshAll();
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Realtime: quote paid / declined ──────────────────────────────────────
-
+  // Realtime: single subscription via lib/realtime
   useEffect(() => {
     if (!user?.id) return;
 
-    const channel = supabase
-      .channel(`quotes-handyman-${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'quotes',
-          filter: `handyman_id=eq.${user.id}`,
-        },
-        (payload) => {
-          const next = payload.new as Partial<Quote> & {id: string; status?: string};
-          const prev = payload.old as Partial<Quote> | undefined;
-          if (!next?.id) return;
-
-          const nextStatus = (next.status || '').toLowerCase();
-          const prevStatus = (prev?.status || '').toLowerCase();
-
-          // Merge into list optimistically
-          setQuotes((list) => {
-            const idx = list.findIndex((q) => q.id === next.id);
-            if (idx === -1) {
-              // Unknown row — full refresh keeps line items correct
-              fetchQuotes().catch(() => {});
-              return list;
-            }
-            const merged = {...list[idx], ...next} as Quote;
-            const copy = list.slice();
-            copy[idx] = merged;
-            return copy;
-          });
-
-          if (prevStatus === nextStatus) return;
-          if (!NOTIFY_STATUSES.has(nextStatus)) return;
-
-          const dedupeKey = `${next.id}:${nextStatus}`;
-          if (notifiedRef.current.has(dedupeKey)) return;
-          notifiedRef.current.add(dedupeKey);
-
-          const msg = statusMessage({
-            status: next.status,
-            job_name: next.job_name,
-            client_name: next.client_name,
-            total_amount: next.total_amount,
-          });
-          if (!msg) return;
-
-          notifyLocal(msg.title, msg.body, {
-            quoteId: next.id,
-            status: nextStatus,
-          }).catch(() => {});
-
-          Alert.alert(msg.title, msg.body);
-
-          // Paid/accepted often creates a job via webhook — refresh jobs
-          if (['deposit_paid', 'accepted', 'approved', 'paid'].includes(nextStatus)) {
-            fetchJobs().catch(() => {});
-          }
-        },
-      )
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('Quotes realtime channel error — is Realtime enabled on quotes?');
+    const channel = subscribeHandymanQuoteUpdates(user.id, (change) => {
+      setQuotes((list) => {
+        const idx = list.findIndex((q) => q.id === change.id);
+        if (idx === -1) {
+          fetchQuotes().catch(() => {});
+          return list;
         }
+        const copy = list.slice();
+        copy[idx] = {...list[idx], ...change.patch} as Quote;
+        return copy;
       });
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+      if (!change.shouldNotify) return;
+
+      const dedupeKey = `${change.id}:${change.status}`;
+      if (notifiedRef.current.has(dedupeKey)) return;
+      notifiedRef.current.add(dedupeKey);
+
+      const msg = quoteStatusMessage({
+        status: change.status,
+        job_name: change.job_name,
+        client_name: change.client_name,
+        total_amount: change.total_amount,
+      });
+      if (!msg) return;
+
+      notifyLocal(msg.title, msg.body, {
+        quoteId: change.id,
+        status: change.status,
+      }).catch(() => {});
+
+      Alert.alert(msg.title, msg.body);
+
+      if (['deposit_paid', 'accepted', 'approved', 'paid'].includes(change.status)) {
+        fetchJobs().catch(() => {});
+      }
+    });
+
+    return () => unsubscribeChannel(channel);
   }, [user?.id, fetchQuotes, fetchJobs]);
 
-  // ── Draft quote builder (UI-only) ────────────────────────────────────────
+  // ── Draft quote builder (UI-only; prefer localizing to new.tsx later) ───
 
   const addNewQuote = useCallback((q: Partial<Quote>): Quote => {
     const draft: Quote = {
