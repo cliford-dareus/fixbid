@@ -1,1 +1,1 @@
-PLACEHOLDER_USE_ARTIFACT
+export {default} from './new-quote-screen';
