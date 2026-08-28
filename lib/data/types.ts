@@ -49,6 +49,37 @@ export interface Quote {
   handyman_id?: string;
 }
 
+/** Snapshot stored on each revision row (state before the change). */
+export interface QuoteRevisionSnapshot {
+  job_name: string;
+  notes: string;
+  total_amount: number;
+  status?: string;
+  client_name?: string;
+  line_items: Array<{
+    description: string;
+    quantity: number;
+    unit_price: number;
+    is_labor?: boolean;
+    photo_url?: string | null;
+  }>;
+}
+
+export interface QuoteRevision {
+  id: string;
+  quote_id: string;
+  handyman_id: string;
+  revision_number: number;
+  reason: string;
+  previous_status: string | null;
+  new_status: string | null;
+  previous_total: number | null;
+  new_total: number | null;
+  snapshot: QuoteRevisionSnapshot;
+  note: string | null;
+  created_at: string;
+}
+
 export interface Payment {
   amount: number;
   method?: 'cash' | 'card' | 'paypal' | 'venmo' | 'other' | string;
