@@ -503,7 +503,7 @@ export const JOB_TEMPLATES: JobTemplate[] = [
         regionalPremiums: [],
     },
 
-    // HURRICANE PREP (Florida/Gulf/Southeast)
+    // HURRICANE PREP
     {
         id: "hurricane-shutter-install",
         category: "Hurricane Prep",
@@ -557,7 +557,7 @@ export const JOB_TEMPLATES: JobTemplate[] = [
         regionalPremiums: [{region: "Florida/Gulf Coast", multiplier: 1.3}],
     },
 
-    // MISC & MAINTENANCE
+    // MISC
     {
         id: "weatherstripping-door",
         category: "Maintenance",
@@ -742,6 +742,22 @@ export const JOB_TEMPLATES: JobTemplate[] = [
     },
 ];
 
+/** Common jobs shown as one-tap chips on New Quote (speed path). */
+export const QUICK_TEMPLATE_IDS = [
+    'faucet-replace',
+    'drywall-patch-small',
+    'toilet-repair',
+    'outlet-replace',
+    'tv-mount',
+    'drain-unclog',
+    'door-lock-replace',
+    'light-fixture-replace',
+] as const;
+
+export const QUICK_TEMPLATES: JobTemplate[] = QUICK_TEMPLATE_IDS.map(
+    (id) => JOB_TEMPLATES.find((t) => t.id === id)!
+).filter(Boolean);
+
 export const CATEGORIES = [...new Set(JOB_TEMPLATES.map((t) => t.category))];
 
 export function getTemplateById(id: string): JobTemplate | undefined {
@@ -754,19 +770,55 @@ export function getTemplatesByCategory(category: string): JobTemplate[] {
 
 export function calculateJobCost(
     template: JobTemplate,
-    materialMarkup: number = 1.2
+    materialMarkup: number = 1.2,
+    /** Profile hourly rate overrides template.laborRate when set. */
+    hourlyRateOverride?: number | null,
 ): {
     labor: number;
     materials: number;
     total: number;
     suggested: number;
+    laborRate: number;
 } {
-    const labor = template.timeEstimateHours * template.laborRate;
+    const laborRate =
+        hourlyRateOverride && hourlyRateOverride > 0
+            ? hourlyRateOverride
+            : template.laborRate;
+    const labor = template.timeEstimateHours * laborRate;
     const materials = template.materials.reduce(
         (sum, m) => sum + m.avgCost * m.qty,
         0
     );
     const total = labor + materials * materialMarkup;
-    const suggested = Math.ceil(total / 5) * 5; // Round to nearest $5
-    return {labor, materials: materials * materialMarkup, total, suggested};
+    const suggested = Math.ceil(total / 5) * 5;
+    return {labor, materials: materials * materialMarkup, total, suggested, laborRate};
+}
+
+/** Build draft line items from a template (profile rate aware). */
+export function templateToLineItems(
+    template: JobTemplate,
+    hourlyRateOverride?: number | null,
+): {
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    isLabor: boolean;
+}[] {
+    const cost = calculateJobCost(template, 1.2, hourlyRateOverride);
+    return [
+        {
+            description: `Labor (${template.timeEstimateHours}h @ $${cost.laborRate}/hr)`,
+            quantity: 1,
+            unitPrice: cost.labor,
+            isLabor: true,
+        },
+        ...template.materials
+            .filter((m) => m.qty > 0)
+            .map((m) => ({
+                description: m.name,
+                quantity: m.qty,
+                unitPrice: Math.round(m.avgCost * 1.2 * 100) / 100,
+                isLabor: false,
+            })),
+    ];
 }
