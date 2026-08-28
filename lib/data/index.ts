@@ -28,3 +28,4 @@ export * as quotesApi from './quotes';
 export * as jobsApi from './jobs';
 export * as profilesApi from './profiles';
 export * as revisionsApi from './revisions';
+export * as paymentsApi from './payments';
