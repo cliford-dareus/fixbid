@@ -1,21 +1,38 @@
 /**
  * POST /functions/v1/create-checkout-session
- * Body: { quote_id: string, client_name?: string, deposit_amount?: number }
+ * Body: {
+ *   quote_id: string,
+ *   payment_type?: "deposit" | "balance"   // default "deposit"
+ * }
  *
- * Always recomputes deposit from the quote row (50%). Client deposit_amount is ignored for charging.
- * Requires env: STRIPE_SECRET_KEY, PUBLIC_QUOTE_URL (e.g. https://fixbid-ten.vercel.app)
- * Optional: STRIPE_CONNECT — if "true", charges on connected account via transfer_data / application_fee.
+ * Deposit: recomputed from quote total × deposit_percent (default 50%).
+ * Balance: total − sum of succeeded payments; only when deposit already paid.
+ *
+ * Env: STRIPE_SECRET_KEY, PUBLIC_QUOTE_URL
+ * Optional: STRIPE_CONNECT=true, PLATFORM_FEE_PERCENT
  */
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { depositFromTotal, serviceClient, toCents } from "../_shared/supabase.ts";
+import {
+  balanceDue,
+  depositFromTotal,
+  serviceClient,
+  sumPaidForQuote,
+  toCents,
+} from "../_shared/supabase.ts";
 
-const BLOCKED_STATUSES = new Set([
+const DEPOSIT_BLOCKED = new Set([
   "accepted",
   "approved",
   "deposit_paid",
   "paid",
   "declined",
+]);
+
+const BALANCE_ALLOWED = new Set([
+  "accepted",
+  "approved",
+  "deposit_paid",
 ]);
 
 Deno.serve(async (req) => {
@@ -42,13 +59,18 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "quote_id is required" }, 400);
     }
 
-    // Ignore client-supplied deposit_amount entirely (do not log as trusted).
+    const paymentTypeRaw =
+      typeof body.payment_type === "string" ? body.payment_type.toLowerCase() : "deposit";
+    const paymentType = paymentTypeRaw === "balance" || paymentTypeRaw === "final"
+      ? "balance"
+      : "deposit";
 
     const supabase = serviceClient();
-    // Only columns that exist on the app write path (avoid client_email 404s).
     const { data: quote, error: quoteErr } = await supabase
       .from("quotes")
-      .select("id, total_amount, status, client_name, handyman_id, job_name")
+      .select(
+        "id, total_amount, status, client_name, handyman_id, job_name, deposit_percent",
+      )
       .eq("id", quoteId)
       .maybeSingle();
 
@@ -61,21 +83,60 @@ Deno.serve(async (req) => {
     }
 
     const status = (quote.status || "").toLowerCase();
-    if (BLOCKED_STATUSES.has(status)) {
-      return jsonResponse(
-        {
-          error: status === "declined"
-            ? "Quote was declined"
-            : "Deposit already paid for this quote",
-        },
-        409,
-      );
+    const total = Number(quote.total_amount) || 0;
+    const paidSoFar = await sumPaidForQuote(supabase, quoteId);
+
+    let chargeDollars: number;
+    let productName: string;
+    let productDesc: string;
+
+    if (paymentType === "deposit") {
+      if (DEPOSIT_BLOCKED.has(status)) {
+        return jsonResponse(
+          {
+            error: status === "declined"
+              ? "Quote was declined"
+              : "Deposit already paid for this quote",
+          },
+          409,
+        );
+      }
+      chargeDollars = depositFromTotal(total, quote.deposit_percent as number | null);
+      const pct =
+        quote.deposit_percent != null && Number(quote.deposit_percent) > 0
+          ? Number(quote.deposit_percent)
+          : 50;
+      productName = `Deposit — ${quote.job_name || "Service quote"}`;
+      productDesc =
+        `${pct}% deposit for quote ${quoteId.slice(0, 8)} (${quote.client_name || "client"})`;
+    } else {
+      // Balance payment
+      if (status === "declined") {
+        return jsonResponse({ error: "Quote was declined" }, 409);
+      }
+      if (status === "paid") {
+        return jsonResponse({ error: "Quote is already fully paid" }, 409);
+      }
+      // Allow balance when deposit is paid (accepted statuses) OR when partial payments exist
+      const hasDeposit = paidSoFar > 0 || BALANCE_ALLOWED.has(status);
+      if (!hasDeposit && !BALANCE_ALLOWED.has(status)) {
+        return jsonResponse(
+          { error: "Pay the deposit first before the balance" },
+          409,
+        );
+      }
+      chargeDollars = balanceDue(total, paidSoFar);
+      if (chargeDollars < 0.5) {
+        return jsonResponse({ error: "No balance remaining on this quote" }, 409);
+      }
+      productName = `Balance — ${quote.job_name || "Service quote"}`;
+      productDesc =
+        `Remaining balance for quote ${quoteId.slice(0, 8)} (${quote.client_name || "client"})`;
     }
 
-    const depositDollars = depositFromTotal(Number(quote.total_amount));
-    const amountCents = toCents(depositDollars);
+    const amountCents = toCents(chargeDollars);
     if (amountCents < 50) {
-      return jsonResponse({ error: "Deposit amount too small" }, 400);
+      return jsonResponse({ error: "Amount too small" }, 400);
     }
 
     let stripeAccountId: string | null = null;
@@ -107,7 +168,8 @@ Deno.serve(async (req) => {
       metadata: {
         quote_id: quoteId,
         handyman_id: quote.handyman_id || "",
-        deposit_dollars: String(depositDollars),
+        payment_type: paymentType,
+        charge_dollars: String(chargeDollars),
         total_amount: String(quote.total_amount),
       },
       line_items: [
@@ -117,9 +179,8 @@ Deno.serve(async (req) => {
             currency: "usd",
             unit_amount: amountCents,
             product_data: {
-              name: `Deposit — ${quote.job_name || "Service quote"}`,
-              description:
-                `50% deposit for quote ${quoteId.slice(0, 8)} (${quote.client_name || "client"})`,
+              name: productName,
+              description: productDesc,
             },
           },
         },
@@ -128,6 +189,7 @@ Deno.serve(async (req) => {
         metadata: {
           quote_id: quoteId,
           handyman_id: quote.handyman_id || "",
+          payment_type: paymentType,
         },
       },
     };
@@ -145,15 +207,18 @@ Deno.serve(async (req) => {
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 
-    // Soft-mark as sent if still draft (client opened pay flow)
-    if (status === "draft") {
+    // Soft-mark as sent if still draft (client opened deposit pay flow)
+    if (paymentType === "deposit" && status === "draft") {
       await supabase.from("quotes").update({ status: "sent" }).eq("id", quoteId);
     }
 
     return jsonResponse({
       url: session.url,
       session_id: session.id,
-      deposit_amount: depositDollars,
+      payment_type: paymentType,
+      amount: chargeDollars,
+      deposit_amount: paymentType === "deposit" ? chargeDollars : undefined,
+      balance_amount: paymentType === "balance" ? chargeDollars : undefined,
     });
   } catch (err) {
     console.error("create-checkout-session", err);
