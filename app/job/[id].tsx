@@ -10,16 +10,16 @@ import {
   Platform,
   ScrollView,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {Button, Card, CardTitle, HeroCard, Input, StatusBadge} from '@/components/ui';
 import {useAuth} from '@/context/auth-context';
 import {useQuote} from '@/context/quote-context';
 import useThemedNavigation from '@/hooks/use-navigation-theme';
 import useThemeColors from '@/hooks/use-theme-color';
-import {jobsApi, paymentsApi, type PaymentRecord} from '@/lib/data';
+import {paymentsApi, type PaymentRecord} from '@/lib/data';
 import {cn} from '@/lib/utils';
 
 const STATUS_ORDER = ['schedule', 'in-progress', 'completed', 'invoiced', 'paid'] as const;
@@ -131,7 +131,6 @@ export default function JobDetailScreen() {
 
       const payType = amt >= balance - 0.01 ? 'balance' : 'payment';
 
-      // Persist on payments table (source of truth for deposits + manual)
       const tableResult = await paymentsApi.recordManualPayment({
         handymanId: user.id,
         quoteId: job.quote_id || null,
@@ -141,7 +140,6 @@ export default function JobDetailScreen() {
         note: payNote || null,
       });
 
-      // Also mirror on job.payments JSON for offline-friendly list
       const entry = {
         amount: amt,
         type: payType,
@@ -196,10 +194,11 @@ export default function JobDetailScreen() {
         <Text className="flex-1 text-[17px] font-bold text-foreground" numberOfLines={1}>
           {job.job_name}
         </Text>
+        <StatusBadge status={job.status} />
       </View>
 
-      <ScrollView contentContainerClassName="p-4 pb-36">
-        <View className="mb-3.5 gap-3 rounded-[20px] bg-secondary-foreground p-5">
+      <ScrollView contentContainerClassName="gap-3.5 p-4 pb-36">
+        <HeroCard className="gap-3">
           <View className="flex-row items-end justify-between">
             <View>
               <Text className="text-[12px] font-semibold uppercase text-slate-400">Total</Text>
@@ -229,12 +228,10 @@ export default function JobDetailScreen() {
               <Text className="text-[14px] text-slate-400">{formatDate(job.schedule_date)}</Text>
             </View>
           ) : null}
-        </View>
+        </HeroCard>
 
-        <View className="mb-3.5 rounded-2xl bg-card p-4">
-          <Text className="mb-3 text-[14px] font-bold uppercase tracking-[0.5px] text-foreground">
-            Status
-          </Text>
+        <Card>
+          <CardTitle>Status</CardTitle>
           <View className="mb-3.5 flex-row justify-between">
             {STATUS_ORDER.map((s, i) => (
               <View key={s} className="flex-1 items-center gap-1">
@@ -244,9 +241,7 @@ export default function JobDetailScreen() {
                     i <= currentStatusIdx ? 'bg-primary' : 'bg-secondary',
                   )}
                 >
-                  {i <= currentStatusIdx && (
-                    <Feather name="check" size={10} color="#fff" />
-                  )}
+                  {i <= currentStatusIdx && <Feather name="check" size={10} color="#fff" />}
                 </View>
                 <Text
                   className="text-center text-[9px] font-semibold leading-3"
@@ -257,35 +252,23 @@ export default function JobDetailScreen() {
               </View>
             ))}
           </View>
-          {nextStatus && (
-            <TouchableOpacity
-              className="flex-row items-center justify-center gap-2 rounded-xl bg-primary p-3"
+          {nextStatus ? (
+            <Button
+              title={`Mark as ${nextStatus.replace('-', ' ')}`}
+              icon="arrow-right"
+              iconPosition="right"
+              size="sm"
               onPress={advanceStatus}
-              activeOpacity={0.85}
-            >
-              <Text className="text-[14px] font-bold text-white">
-                Mark as {nextStatus.replace('-', ' ')}
-              </Text>
-              <Feather name="arrow-right" size={16} color="#fff" />
-            </TouchableOpacity>
-          )}
-        </View>
+            />
+          ) : null}
+        </Card>
 
-        {/* Payments — deposit from Stripe + manual */}
-        <View className="mb-3.5 rounded-2xl bg-card p-4">
+        <Card>
           <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-[14px] font-bold uppercase tracking-[0.5px] text-foreground">
-              Payments
-            </Text>
-            {balance > 0 && (
-              <TouchableOpacity
-                className="flex-row items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5"
-                onPress={() => setShowPayment(true)}
-              >
-                <Feather name="plus" size={14} color="#fff" />
-                <Text className="text-[13px] font-semibold text-white">Record</Text>
-              </TouchableOpacity>
-            )}
+            <CardTitle className="mb-0">Payments</CardTitle>
+            {balance > 0 ? (
+              <Button title="Record" size="sm" icon="plus" onPress={() => setShowPayment(true)} />
+            ) : null}
           </View>
 
           {loadingPayments ? (
@@ -302,7 +285,11 @@ export default function JobDetailScreen() {
               >
                 <View className="flex-1 pr-2">
                   <Text className="text-[16px] font-bold text-emerald-600">
-                    +${Number(p.amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    +$
+                    {Number(p.amount).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </Text>
                   <Text className="text-[12px] font-semibold capitalize text-foreground">
                     {paymentLabel(p)}
@@ -323,7 +310,11 @@ export default function JobDetailScreen() {
           <View className="mt-1 flex-row items-center justify-between border-t border-zinc-200 pt-2.5">
             <Text className="text-[13px] font-semibold text-muted-foreground">Paid</Text>
             <Text className="text-[16px] font-extrabold text-emerald-600">
-              ${totalPaid.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              $
+              {totalPaid.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </Text>
           </View>
           <View className="mt-1 flex-row items-center justify-between">
@@ -332,15 +323,17 @@ export default function JobDetailScreen() {
               className="text-[15px] font-bold"
               style={{color: balance > 0 ? '#dc2626' : '#16a34a'}}
             >
-              ${balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              $
+              {balance.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </Text>
           </View>
-        </View>
+        </Card>
 
-        <View className="mb-3.5 rounded-2xl bg-card p-4">
-          <Text className="mb-3 text-[14px] font-bold uppercase tracking-[0.5px] text-foreground">
-            Job Photos
-          </Text>
+        <Card>
+          <CardTitle>Job Photos</CardTitle>
           <PhotoSection
             label="Before"
             photos={job.before_photos}
@@ -353,21 +346,18 @@ export default function JobDetailScreen() {
             onAdd={() => addPhoto('after')}
             colors={colors}
           />
-        </View>
+        </Card>
 
-        <View className="mb-3.5 rounded-2xl bg-card p-4">
-          <Text className="mb-3 text-[14px] font-bold uppercase tracking-[0.5px] text-foreground">
-            Notes
-          </Text>
-          <TextInput
-            className="min-h-[80px] rounded-[10px] border border-zinc-300 p-3 text-[14px] text-foreground"
-            style={{textAlignVertical: 'top'}}
+        <Card>
+          <CardTitle>Notes</CardTitle>
+          <Input
+            multiline
             value={job.notes}
             onChangeText={(v) => updateJob(job.id, {notes: v})}
-            multiline
             placeholder="Add job notes, materials used, issues found..."
+            inputClassName="min-h-[80px]"
           />
-        </View>
+        </Card>
       </ScrollView>
 
       {showPayment && (
@@ -381,32 +371,20 @@ export default function JobDetailScreen() {
             <Text className="text-[14px] text-muted-foreground">
               Balance due: ${balance.toLocaleString(undefined, {minimumFractionDigits: 2})}
             </Text>
-            <TextInput
-              className="rounded-xl border border-zinc-200 px-3.5 py-3 text-[16px] text-foreground"
+            <Input
               value={payAmt}
               onChangeText={setPayAmt}
               placeholder="Amount ($)"
               keyboardType="decimal-pad"
               autoFocus
             />
-            <TextInput
-              className="rounded-xl border border-zinc-200 px-3.5 py-3 text-[16px] text-foreground"
-              value={payNote}
-              onChangeText={setPayNote}
-              placeholder="Note (optional)"
-            />
-            <TouchableOpacity
-              className="mt-1 items-center rounded-xl bg-emerald-600 p-3.5"
+            <Input value={payNote} onChangeText={setPayNote} placeholder="Note (optional)" />
+            <Button
+              title="Confirm Payment"
+              variant="success"
+              loading={recording}
               onPress={handlePayment}
-              activeOpacity={0.85}
-              disabled={recording}
-            >
-              {recording ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text className="text-[16px] font-bold text-white">Confirm Payment</Text>
-              )}
-            </TouchableOpacity>
+            />
           </View>
         </View>
       )}
@@ -429,13 +407,7 @@ function PhotoSection({
     <View className="mb-3.5">
       <View className="mb-2 flex-row items-center justify-between">
         <Text className="text-[13px] font-semibold text-muted-foreground">{label}</Text>
-        <TouchableOpacity
-          className="flex-row items-center gap-1 rounded-lg bg-secondary px-2.5 py-1.5"
-          onPress={onAdd}
-        >
-          <Feather name="plus" size={14} color={colors.primary} />
-          <Text className="text-[13px] font-semibold text-primary">Add</Text>
-        </TouchableOpacity>
+        <Button title="Add" size="sm" variant="secondary" icon="plus" onPress={onAdd} />
       </View>
       {photos.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="gap-2">
