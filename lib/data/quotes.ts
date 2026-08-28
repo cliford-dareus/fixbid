@@ -111,6 +111,53 @@ export async function updateQuote(
   }
 }
 
+/** Replace all line items and update total (for revise-and-resend). */
+export async function replaceLineItems(
+  quoteId: string,
+  lineItems: Array<{
+    description: string;
+    quantity: number;
+    unit_price: number;
+    is_labor?: boolean;
+    photo_url?: string | null;
+  }>,
+  totalAmount: number,
+): Promise<Result<Quote>> {
+  try {
+    const {error: delErr} = await supabase
+      .from('quote_line_items')
+      .delete()
+      .eq('quote_id', quoteId);
+    if (delErr) return err(delErr);
+
+    if (lineItems.length > 0) {
+      const rows = lineItems.map((li) => ({
+        quote_id: quoteId,
+        description: li.description,
+        quantity: li.quantity,
+        unit_price: li.unit_price,
+        is_labor: li.is_labor ?? false,
+        photo_url: li.photo_url ?? null,
+      }));
+      const {error: insErr} = await supabase.from('quote_line_items').insert(rows);
+      if (insErr) return err(insErr);
+    }
+
+    const {error: upErr} = await supabase
+      .from('quotes')
+      .update({
+        total_amount: totalAmount,
+        status: 'draft',
+      })
+      .eq('id', quoteId);
+    if (upErr) return err(upErr);
+
+    return getQuote(quoteId);
+  } catch (e) {
+    return err(e, 'Failed to update line items');
+  }
+}
+
 export async function deleteQuote(id: string): Promise<Result<void>> {
   try {
     await supabase.from('quote_line_items').delete().eq('quote_id', id);
