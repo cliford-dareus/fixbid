@@ -5,7 +5,6 @@ import {router, useLocalSearchParams} from 'expo-router';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Platform,
   ScrollView,
@@ -21,6 +20,7 @@ import useThemedNavigation from '@/hooks/use-navigation-theme';
 import useThemeColors from '@/hooks/use-theme-color';
 import {paymentsApi, type PaymentRecord} from '@/lib/data';
 import {cn} from '@/lib/utils';
+import {notifyError, notifySuccess, notifyWarning} from '@/lib/feedback';
 
 const STATUS_ORDER = ['schedule', 'in-progress', 'completed', 'invoiced', 'paid'] as const;
 
@@ -117,11 +117,11 @@ export default function JobDetailScreen() {
   const handlePayment = async () => {
     const amt = parseFloat(payAmt);
     if (!amt || amt <= 0) {
-      Alert.alert('Enter a valid amount');
+      notifyWarning('Invalid amount', 'Enter a payment greater than zero.');
       return;
     }
     if (!user?.id) {
-      Alert.alert('Not logged in');
+      notifyError('Not logged in', 'Sign in to record payments.');
       return;
     }
 
@@ -169,9 +169,9 @@ export default function JobDetailScreen() {
       setPayAmt('');
       setPayNote('');
       setShowPayment(false);
-      Alert.alert('Payment recorded', `$${amt.toFixed(2)} added to this job.`);
+      notifySuccess('Payment recorded', `$${amt.toFixed(2)} added to this job.`);
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Could not record payment');
+      notifyError('Payment failed', e.message || 'Could not record payment');
     } finally {
       setRecording(false);
     }
