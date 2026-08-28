@@ -4,12 +4,15 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 import {Alert} from 'react-native';
+import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '@/context/auth-context';
 import {notifyLocal} from '@/lib/notification';
+import {fromResult, queryKeys} from '@/lib/query-client';
 import {
   quoteStatusMessage,
   subscribeHandymanQuoteUpdates,
@@ -28,7 +31,6 @@ import {
   type Quote,
 } from '@/lib/data';
 
-// Re-export domain types so existing `import { Quote } from '@/context/quote-context'` keeps working
 export type {Client, DraftLineItem, Job, LineItem, Payment, Quote};
 
 type QuoteContextType = {
@@ -70,79 +72,101 @@ const QuoteContext = createContext<QuoteContextType | undefined>(undefined);
 
 export function QuoteProvider({children}: {children: ReactNode}) {
   const {user} = useAuth();
+  const userId = user?.id;
+  const qc = useQueryClient();
+
   const [newQuote, setNewQuote] = useState<Quote | null>(null);
   const [lineItems, setLineItems] = useState<DraftLineItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [jobs, setJobs] = useState<Job[]>([]);
-
-  /** Avoid spamming alerts for the same id+status (e.g. refetch echo). */
+  const [loadingOverride, setLoading] = useState(false);
   const notifiedRef = useRef<Set<string>>(new Set());
 
-  const fetchClients = useCallback(async () => {
-    if (!user?.id) return;
-    const result = await clientsApi.listClients(user.id);
-    if (!result.ok) {
-      console.error(result.error);
-      Alert.alert('Error', result.error || 'Failed to load clients.');
-      return;
-    }
-    setClients(result.data);
-  }, [user?.id]);
+  // ── Queries ──────────────────────────────────────────────────────────────
 
-  const fetchJobs = useCallback(async () => {
-    if (!user?.id) return;
-    const result = await jobsApi.listJobs(user.id);
-    if (!result.ok) {
-      console.error(result.error);
-      Alert.alert('Error', result.error || 'Failed to load jobs.');
-      return;
+  const quotesQuery = useQuery({
+    queryKey: userId ? queryKeys.quotes(userId) : ['quotes', 'none'],
+    queryFn: () => fromResult(quotesApi.listQuotes(userId!)),
+    enabled: Boolean(userId),
+  });
+
+  const clientsQuery = useQuery({
+    queryKey: userId ? queryKeys.clients(userId) : ['clients', 'none'],
+    queryFn: () => fromResult(clientsApi.listClients(userId!)),
+    enabled: Boolean(userId),
+  });
+
+  const jobsQuery = useQuery({
+    queryKey: userId ? queryKeys.jobs(userId) : ['jobs', 'none'],
+    queryFn: () => fromResult(jobsApi.listJobs(userId!)),
+    enabled: Boolean(userId),
+  });
+
+  const quotes = quotesQuery.data ?? [];
+  const clients = clientsQuery.data ?? [];
+  const jobs = jobsQuery.data ?? [];
+
+  const loading =
+    loadingOverride ||
+    (Boolean(userId) &&
+      (quotesQuery.isLoading || clientsQuery.isLoading || jobsQuery.isLoading));
+
+  useEffect(() => {
+    if (!userId) {
+      notifiedRef.current.clear();
     }
-    setJobs(result.data);
-  }, [user?.id]);
+  }, [userId]);
+
+  // Surface query errors once
+  useEffect(() => {
+    const err =
+      quotesQuery.error || clientsQuery.error || jobsQuery.error;
+    if (err) {
+      console.error(err);
+    }
+  }, [quotesQuery.error, clientsQuery.error, jobsQuery.error]);
 
   const fetchQuotes = useCallback(async () => {
-    if (!user?.id) return;
-    const result = await quotesApi.listQuotes(user.id);
-    if (!result.ok) {
-      console.error(result.error);
-      Alert.alert('Error', result.error || 'Failed to load quotes.');
-      return;
-    }
-    setQuotes(result.data);
-  }, [user?.id]);
+    if (!userId) return;
+    await qc.invalidateQueries({queryKey: queryKeys.quotes(userId)});
+  }, [qc, userId]);
+
+  const fetchClients = useCallback(async () => {
+    if (!userId) return;
+    await qc.invalidateQueries({queryKey: queryKeys.clients(userId)});
+  }, [qc, userId]);
+
+  const fetchJobs = useCallback(async () => {
+    if (!userId) return;
+    await qc.invalidateQueries({queryKey: queryKeys.jobs(userId)});
+  }, [qc, userId]);
 
   const refreshAll = useCallback(async () => {
-    if (!user?.id) return;
+    if (!userId) return;
     setLoading(true);
     try {
-      await Promise.all([fetchClients(), fetchQuotes(), fetchJobs()]);
+      await Promise.all([
+        qc.invalidateQueries({queryKey: queryKeys.quotes(userId)}),
+        qc.invalidateQueries({queryKey: queryKeys.clients(userId)}),
+        qc.invalidateQueries({queryKey: queryKeys.jobs(userId)}),
+      ]);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, fetchClients, fetchQuotes, fetchJobs]);
+  }, [qc, userId]);
+
+  // ── Realtime → query cache ───────────────────────────────────────────────
 
   useEffect(() => {
-    if (!user?.id) {
-      setClients([]);
-      setQuotes([]);
-      setJobs([]);
-      notifiedRef.current.clear();
-      return;
-    }
-    refreshAll();
-  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!userId) return;
 
-  // Realtime: single subscription via lib/realtime
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const channel = subscribeHandymanQuoteUpdates(user.id, (change) => {
-      setQuotes((list) => {
+    const channel = subscribeHandymanQuoteUpdates(userId, (change) => {
+      qc.setQueryData<Quote[]>(queryKeys.quotes(userId), (list) => {
+        if (!list) {
+          void qc.invalidateQueries({queryKey: queryKeys.quotes(userId)});
+          return list;
+        }
         const idx = list.findIndex((q) => q.id === change.id);
         if (idx === -1) {
-          fetchQuotes().catch(() => {});
+          void qc.invalidateQueries({queryKey: queryKeys.quotes(userId)});
           return list;
         }
         const copy = list.slice();
@@ -172,14 +196,14 @@ export function QuoteProvider({children}: {children: ReactNode}) {
       Alert.alert(msg.title, msg.body);
 
       if (['deposit_paid', 'accepted', 'approved', 'paid'].includes(change.status)) {
-        fetchJobs().catch(() => {});
+        void qc.invalidateQueries({queryKey: queryKeys.jobs(userId)});
       }
     });
 
     return () => unsubscribeChannel(channel);
-  }, [user?.id, fetchQuotes, fetchJobs]);
+  }, [userId, qc]);
 
-  // ── Draft quote builder (UI-only; prefer localizing to new.tsx later) ───
+  // ── Draft (UI-only) ──────────────────────────────────────────────────────
 
   const addNewQuote = useCallback((q: Partial<Quote>): Quote => {
     const draft: Quote = {
@@ -208,45 +232,64 @@ export function QuoteProvider({children}: {children: ReactNode}) {
     setNewQuote(null);
   }, []);
 
-  // ── Quotes ───────────────────────────────────────────────────────────────
+  // ── Mutations ────────────────────────────────────────────────────────────
+
+  const updateQuoteMutation = useMutation({
+    mutationFn: ({id, updates}: {id: string; updates: Partial<Quote>}) =>
+      fromResult(quotesApi.updateQuote(id, updates)),
+    onMutate: async ({id, updates}) => {
+      if (!userId) return;
+      await qc.cancelQueries({queryKey: queryKeys.quotes(userId)});
+      const prev = qc.getQueryData<Quote[]>(queryKeys.quotes(userId));
+      qc.setQueryData<Quote[]>(queryKeys.quotes(userId), (list) =>
+        (list ?? []).map((q) => (q.id === id ? {...q, ...updates} : q)),
+      );
+      return {prev};
+    },
+    onError: (err, _vars, ctx) => {
+      if (userId && ctx?.prev) {
+        qc.setQueryData(queryKeys.quotes(userId), ctx.prev);
+      }
+      console.error(err);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update quote');
+    },
+  });
+
+  const deleteQuoteMutation = useMutation({
+    mutationFn: (id: string) => fromResult(quotesApi.deleteQuote(id)),
+    onMutate: async (id) => {
+      if (!userId) return;
+      await qc.cancelQueries({queryKey: queryKeys.quotes(userId)});
+      const prev = qc.getQueryData<Quote[]>(queryKeys.quotes(userId));
+      qc.setQueryData<Quote[]>(queryKeys.quotes(userId), (list) =>
+        (list ?? []).filter((q) => q.id !== id),
+      );
+      return {prev};
+    },
+    onError: (err, _id, ctx) => {
+      if (userId && ctx?.prev) {
+        qc.setQueryData(queryKeys.quotes(userId), ctx.prev);
+      }
+      console.error(err);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to delete quote');
+    },
+  });
 
   const updateQuote = useCallback(
     async (id: string, updates: Partial<Quote>) => {
       if (!id) return;
-
-      const prev = quotes;
-      setQuotes((list) => list.map((q) => (q.id === id ? {...q, ...updates} : q)));
-
-      const result = await quotesApi.updateQuote(id, updates);
-      if (!result.ok) {
-        setQuotes(prev);
-        console.error(result.error);
-        Alert.alert('Error', result.error || 'Failed to update quote');
-        throw new Error(result.error);
-      }
+      await updateQuoteMutation.mutateAsync({id, updates});
     },
-    [quotes],
+    [updateQuoteMutation],
   );
 
   const deleteQuote = useCallback(
     async (id: string) => {
       if (!id) return;
-
-      const prev = quotes;
-      setQuotes((list) => list.filter((q) => q.id !== id));
-
-      const result = await quotesApi.deleteQuote(id);
-      if (!result.ok) {
-        setQuotes(prev);
-        console.error(result.error);
-        Alert.alert('Error', result.error || 'Failed to delete quote');
-        throw new Error(result.error);
-      }
+      await deleteQuoteMutation.mutateAsync(id);
     },
-    [quotes],
+    [deleteQuoteMutation],
   );
-
-  // ── Draft line items (UI-only) ───────────────────────────────────────────
 
   const updateLineItem = useCallback(
     (idx: number, field: keyof DraftLineItem, value: string | number) => {
@@ -268,75 +311,74 @@ export function QuoteProvider({children}: {children: ReactNode}) {
     ]);
   }, []);
 
-  // ── Clients ──────────────────────────────────────────────────────────────
-
   const addClient = useCallback(
     async (input: CreateClientInput): Promise<Client> => {
-      if (!user?.id) throw new Error('Not logged in');
-
-      const result = await clientsApi.createClient(user.id, input);
-      if (!result.ok) throw new Error(result.error);
-
-      setClients((prev) => [result.data, ...prev]);
-      return result.data;
+      if (!userId) throw new Error('Not logged in');
+      const created = await fromResult(clientsApi.createClient(userId, input));
+      qc.setQueryData<Client[]>(queryKeys.clients(userId), (list) => [
+        created,
+        ...(list ?? []),
+      ]);
+      return created;
     },
-    [user?.id],
+    [qc, userId],
   );
 
   const updateClient = useCallback(
     async (id: string, updates: Partial<Client>) => {
-      if (!id) return;
-
-      const prev = clients;
-      setClients((list) => list.map((c) => (c.id === id ? {...c, ...updates} : c)));
-
-      const result = await clientsApi.updateClient(id, updates);
-      if (!result.ok) {
-        setClients(prev);
-        console.error(result.error);
-        Alert.alert('Error', result.error || 'Failed to update client');
-        throw new Error(result.error);
+      if (!id || !userId) return;
+      const prev = qc.getQueryData<Client[]>(queryKeys.clients(userId));
+      qc.setQueryData<Client[]>(queryKeys.clients(userId), (list) =>
+        (list ?? []).map((c) => (c.id === id ? {...c, ...updates} : c)),
+      );
+      try {
+        await fromResult(clientsApi.updateClient(id, updates));
+      } catch (e) {
+        if (prev) qc.setQueryData(queryKeys.clients(userId), prev);
+        console.error(e);
+        Alert.alert('Error', e instanceof Error ? e.message : 'Failed to update client');
+        throw e;
       }
     },
-    [clients],
+    [qc, userId],
   );
 
   const deleteClient = useCallback(
     async (id: string) => {
-      if (!id) return;
-
-      const prev = clients;
-      setClients((list) => list.filter((c) => c.id !== id));
-
-      const result = await clientsApi.deleteClient(id);
-      if (!result.ok) {
-        setClients(prev);
-        console.error(result.error);
-        Alert.alert('Error', result.error || 'Failed to delete client');
-        throw new Error(result.error);
+      if (!id || !userId) return;
+      const prev = qc.getQueryData<Client[]>(queryKeys.clients(userId));
+      qc.setQueryData<Client[]>(queryKeys.clients(userId), (list) =>
+        (list ?? []).filter((c) => c.id !== id),
+      );
+      try {
+        await fromResult(clientsApi.deleteClient(id));
+      } catch (e) {
+        if (prev) qc.setQueryData(queryKeys.clients(userId), prev);
+        console.error(e);
+        Alert.alert('Error', e instanceof Error ? e.message : 'Failed to delete client');
+        throw e;
       }
     },
-    [clients],
+    [qc, userId],
   );
-
-  // ── Jobs ─────────────────────────────────────────────────────────────────
 
   const updateJob = useCallback(
     async (id: string, updates: Partial<Job>) => {
-      if (!id) return;
-
-      const prev = jobs;
-      setJobs((list) => list.map((j) => (j.id === id ? {...j, ...updates} : j)));
-
-      const result = await jobsApi.updateJob(id, updates);
-      if (!result.ok) {
-        setJobs(prev);
-        console.error(result.error);
-        Alert.alert('Error', result.error || 'Failed to update job');
-        throw new Error(result.error);
+      if (!id || !userId) return;
+      const prev = qc.getQueryData<Job[]>(queryKeys.jobs(userId));
+      qc.setQueryData<Job[]>(queryKeys.jobs(userId), (list) =>
+        (list ?? []).map((j) => (j.id === id ? {...j, ...updates} : j)),
+      );
+      try {
+        await fromResult(jobsApi.updateJob(id, updates));
+      } catch (e) {
+        if (prev) qc.setQueryData(queryKeys.jobs(userId), prev);
+        console.error(e);
+        Alert.alert('Error', e instanceof Error ? e.message : 'Failed to update job');
+        throw e;
       }
     },
-    [jobs],
+    [qc, userId],
   );
 
   const getTodayJobs = useCallback(() => {
@@ -384,45 +426,69 @@ export function QuoteProvider({children}: {children: ReactNode}) {
     [jobs],
   );
 
-  return (
-    <QuoteContext.Provider
-      value={{
-        newQuote,
-        addNewQuote,
-        updateNewQuote,
-        clearNewQuote,
-        quotes,
-        updateQuote,
-        deleteQuote,
+  const value = useMemo(
+    () => ({
+      newQuote,
+      addNewQuote,
+      updateNewQuote,
+      clearNewQuote,
+      quotes,
+      updateQuote,
+      deleteQuote,
 
-        lineItems,
-        updateLineItem,
-        removeLineItem,
-        addLineItem,
-        setLineItems,
+      lineItems,
+      updateLineItem,
+      removeLineItem,
+      addLineItem,
+      setLineItems,
 
-        clients,
-        addClient,
-        updateClient,
-        deleteClient,
+      clients,
+      addClient,
+      updateClient,
+      deleteClient,
 
-        jobs,
-        updateJob,
-        getTodayJobs,
-        getMonthRevenue,
+      jobs,
+      updateJob,
+      getTodayJobs,
+      getMonthRevenue,
 
-        fetchClients,
-        fetchQuotes,
-        fetchJobs,
-        refreshAll,
+      fetchClients,
+      fetchQuotes,
+      fetchJobs,
+      refreshAll,
 
-        loading,
-        setLoading,
-      }}
-    >
-      {children}
-    </QuoteContext.Provider>
+      loading,
+      setLoading,
+    }),
+    [
+      newQuote,
+      addNewQuote,
+      updateNewQuote,
+      clearNewQuote,
+      quotes,
+      updateQuote,
+      deleteQuote,
+      lineItems,
+      updateLineItem,
+      removeLineItem,
+      addLineItem,
+      clients,
+      addClient,
+      updateClient,
+      deleteClient,
+      jobs,
+      updateJob,
+      getTodayJobs,
+      getMonthRevenue,
+      fetchClients,
+      fetchQuotes,
+      fetchJobs,
+      refreshAll,
+      loading,
+    ],
   );
+
+  return <QuoteContext.Provider value={value}>{children}</QuoteContext.Provider>;
 }
 
 export const useQuote = () => {
