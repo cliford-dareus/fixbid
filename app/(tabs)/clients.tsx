@@ -2,7 +2,6 @@ import {Feather} from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, {useState} from 'react';
 import {
-  Alert,
   FlatList,
   Platform,
   Text,
@@ -16,6 +15,7 @@ import {Client, useQuote} from '@/context/quote-context';
 import useThemedNavigation from '@/hooks/use-navigation-theme';
 import {router} from 'expo-router';
 import {Button, EmptyState, Input} from '@/components/ui';
+import {confirm, notifyError, notifySuccess, notifyWarning} from '@/lib/feedback';
 
 export default function ClientsScreen() {
   const insets = useSafeAreaInsets();
@@ -33,22 +33,21 @@ export default function ClientsScreen() {
       c.email?.toLowerCase()?.includes(search?.toLowerCase()),
   );
 
-  const handleDelete = (c: Client) => {
-    Alert.alert('Delete Client', `Remove ${c.name}?`, [
-      {text: 'Cancel', style: 'cancel'},
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteClient(c.id);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          } catch {
-            // error alert handled in context
-          }
-        },
-      },
-    ]);
+  const handleDelete = async (c: Client) => {
+    const ok = await confirm({
+      title: 'Delete client',
+      message: `Remove ${c.name}?`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteClient(c.id);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      notifySuccess('Client removed');
+    } catch (e) {
+      notifyError('Could not delete client', e instanceof Error ? e.message : undefined);
+    }
   };
 
   return (
@@ -162,7 +161,7 @@ function AddClientModal({onClose}: {onClose: () => void}) {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Name required');
+      notifyWarning('Name required', 'Enter a client name to continue.');
       return;
     }
     setSaving(true);
@@ -175,10 +174,11 @@ function AddClientModal({onClose}: {onClose: () => void}) {
         notes,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      notifySuccess('Client saved');
       onClose();
       router.push(`/client/${client.id}`);
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to save client');
+      notifyError('Could not save client', error.message || 'Failed to save client');
     } finally {
       setSaving(false);
     }
