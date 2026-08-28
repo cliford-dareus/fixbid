@@ -4,9 +4,277 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Quote — FixBid</title>
-<script>window.location.replace('https://raw.githack.com/cliford-dareus/fixbid/44e4772b9390d96e39adf080f28a96cc604f5094/public-quote-page/index.html'+window.location.search);</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
-<body>
-<p>Redirecting to quote…</p>
+<body class="bg-slate-100 min-h-screen">
+<div id="app" class="max-w-3xl mx-auto px-4 py-8">
+  <p class="text-center text-slate-500">Loading quote…</p>
+</div>
+<script>
+(function () {
+  const SUPABASE_FUNCTIONS = (window.FIXBID_FUNCTIONS_URL) || 'https://YOUR_PROJECT.supabase.co/functions/v1';
+  const PAID_STATUSES = ['accepted', 'approved', 'deposit_paid', 'paid'];
+  const DECLINED_STATUSES = ['declined'];
+  let currentQuote = null;
+  let currentHandyman = null;
+
+  function qs(name) {
+    return new URLSearchParams(window.location.search).get(name);
+  }
+  function formatMoney(n) {
+    return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text || '';
+  }
+
+  async function loadQuote() {
+    const id = qs('id');
+    if (!id) {
+      document.getElementById('app').innerHTML = '<p class="text-center text-red-600">Missing quote id</p>';
+      return;
+    }
+    try {
+      const res = await fetch(SUPABASE_FUNCTIONS + '/public-quote?id=' + encodeURIComponent(id));
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Not found');
+      currentQuote = data.quote;
+      currentHandyman = data.handyman || {};
+      renderQuote(currentQuote, currentHandyman);
+    } catch (e) {
+      document.getElementById('app').innerHTML =
+        '<p class="text-center text-red-600">Could not load quote. Please ask the contractor to resend the link.</p>';
+    }
+  }
+
+  function renderQuote(q, h) {
+    const total = Number(q.total_amount) || 0;
+    var pct = Number(q.deposit_percent);
+    if (!pct || pct <= 0 || pct > 100) pct = 50;
+    const deposit = Math.round(total * pct) / 100;
+    const status = (q.status || 'sent').toLowerCase();
+    const isPaid = PAID_STATUSES.indexOf(status) !== -1;
+    const isDeclined = DECLINED_STATUSES.indexOf(status) !== -1;
+    const amountPaid = Number(q.amount_paid) || 0;
+    const balanceRemaining = q.balance_due != null
+      ? Number(q.balance_due)
+      : Math.max(0, Math.round((total - amountPaid) * 100) / 100);
+    const contractorLabel = (h.business_name || h.full_name || 'your contractor').trim();
+    const acceptMode = (q.acceptance_mode || 'deposit').toLowerCase();
+
+    let badge = 'Awaiting response';
+    let badgeClass = 'bg-amber-100 text-amber-800';
+    if (isPaid) {
+      badge = status === 'accepted' && amountPaid < 0.5 ? 'Accepted' : 'Deposit paid';
+      badgeClass = 'bg-green-100 text-green-700';
+    } else if (isDeclined) {
+      badge = 'Declined';
+      badgeClass = 'bg-red-100 text-red-700';
+    } else if (acceptMode === 'accept') {
+      badge = 'Awaiting acceptance';
+    } else {
+      badge = 'Awaiting deposit';
+    }
+
+    const lines = (q.line_items || []).map(function (li) {
+      const lineTotal = (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
+      return '<tr class="border-b border-slate-100"><td class="py-2 pr-2 text-slate-800">' +
+        (li.description || '') +
+        '</td><td class="py-2 text-right text-slate-700">' + formatMoney(lineTotal) + '</td></tr>';
+    }).join('');
+
+    document.getElementById('app').innerHTML =
+      '<div class="bg-white rounded-3xl shadow-xl overflow-hidden">' +
+      '<div class="h-2.5 bg-orange-600"></div>' +
+      '<div class="p-6 md:p-8">' +
+      '<div class="flex flex-wrap items-start justify-between gap-3 mb-6">' +
+      '<div><p class="text-xs font-bold uppercase tracking-widest text-slate-400">From</p>' +
+      '<p class="text-lg font-bold text-slate-900">' + contractorLabel + '</p></div>' +
+      '<span class="text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full ' + badgeClass + '">' + badge + '</span>' +
+      '</div>' +
+      '<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">' +
+      '<div><p class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">Bill to</p>' +
+      '<p class="font-semibold text-slate-900">' + (q.client_name || '') + '</p></div>' +
+      '<div><p class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">Project</p>' +
+      '<p class="font-semibold text-slate-900">' + (q.job_name || '') + '</p></div>' +
+      '</div>' +
+      '<table class="w-full mb-4"><thead><tr class="text-left text-xs uppercase tracking-wider text-slate-400">' +
+      '<th class="pb-2">Item</th><th class="pb-2 text-right">Amount</th></tr></thead><tbody>' + lines + '</tbody></table>' +
+      '<div class="flex justify-between items-center border-t border-slate-200 pt-4 mb-6">' +
+      '<span class="font-semibold text-slate-600">Total</span>' +
+      '<span class="text-2xl font-black text-slate-900">' + formatMoney(total) + '</span></div>' +
+      '<p id="footer-message" class="text-sm text-slate-600 mb-4"></p>' +
+      '<div id="next-steps" class="rounded-2xl bg-slate-50 border border-slate-100 p-4 mb-4 hidden">' +
+      '<h4 class="text-sm font-bold text-slate-800 mb-2">What happens next</h4><ol class="list-decimal pl-5 text-sm text-slate-600 space-y-1"></ol></div>' +
+      '<div id="total_btn" class="flex flex-wrap gap-2 justify-end items-center"></div>' +
+      '</div></div>';
+
+    const totalBtn = document.getElementById('total_btn');
+    const nextSteps = document.getElementById('next-steps');
+
+    if (balanceRemaining < 0.5 && (isPaid || amountPaid > 0) && status === 'paid') {
+      setText('footer-message', 'Thank you — this quote is fully paid.');
+      totalBtn.innerHTML = '<div class="flex items-center gap-2 text-green-700 font-semibold"><i class="fa-solid fa-circle-check"></i> Paid in full</div>';
+      return;
+    }
+
+    if (isPaid || amountPaid > 0) {
+      if (status === 'accepted' && amountPaid < 0.5) {
+        setText('footer-message', 'You accepted this quote' +
+          (q.accepted_by_name ? ' as ' + q.accepted_by_name : '') +
+          '. ' + contractorLabel + ' will contact you to schedule.');
+        if (nextSteps) {
+          nextSteps.classList.remove('hidden');
+          nextSteps.querySelector('ol').innerHTML =
+            '<li>Quote accepted — no deposit was required.</li>' +
+            '<li>' + contractorLabel + ' will reach out to schedule the work.</li>' +
+            '<li>Any payment terms will be confirmed before work begins.</li>';
+        }
+        totalBtn.innerHTML = '<div class="flex items-center gap-2 text-green-700 font-semibold"><i class="fa-solid fa-circle-check"></i> Accepted' +
+          (q.accepted_by_name ? ' by ' + q.accepted_by_name : '') + '</div>';
+        return;
+      }
+      setText('footer-message', 'Deposit received. Pay the remaining balance when the work is complete.');
+      const balBtn = document.createElement('button');
+      balBtn.type = 'button';
+      balBtn.className = 'h-10 text-white bg-orange-600 hover:bg-orange-700 inline-flex items-center justify-center px-4 gap-2 rounded-2xl text-sm font-medium';
+      balBtn.innerHTML = '<i class="fa-solid fa-credit-card"></i> Pay ' + formatMoney(balanceRemaining) + ' Balance';
+      balBtn.onclick = async function () {
+        balBtn.disabled = true;
+        try {
+          const res = await fetch(SUPABASE_FUNCTIONS + '/create-checkout-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quote_id: q.id, payment_type: 'balance' }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.url) throw new Error(data.error || 'Checkout failed');
+          window.location.href = data.url;
+        } catch (err) {
+          alert(err.message || 'Unable to start payment');
+          balBtn.disabled = false;
+        }
+      };
+      totalBtn.appendChild(balBtn);
+      return;
+    }
+
+    if (isDeclined) {
+      setText('footer-message', 'This quote was declined. Contact ' + contractorLabel + ' if you would like a revised quote.');
+      return;
+    }
+
+    if (nextSteps) nextSteps.classList.remove('hidden');
+
+    const declineBtn = document.createElement('button');
+    declineBtn.type = 'button';
+    declineBtn.className = 'h-10 inline-flex items-center justify-center px-4 gap-2 border border-slate-300 rounded-2xl text-sm font-medium text-slate-700 hover:bg-slate-100';
+    declineBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> Decline';
+    declineBtn.onclick = function () { declineQuote(q.id); };
+
+    if (acceptMode === 'accept') {
+      setText('footer-message', 'Review the scope and accept this quote. No deposit is required now.');
+      nextSteps.querySelector('ol').innerHTML =
+        '<li>Type your name and accept to confirm the work and pricing.</li>' +
+        '<li>' + contractorLabel + ' will contact you to schedule.</li>' +
+        '<li>Payment terms (if any) will be confirmed before work begins.</li>';
+      const nameWrap = document.createElement('div');
+      nameWrap.className = 'w-full mb-2';
+      nameWrap.innerHTML =
+        '<label class="block text-xs font-semibold text-slate-500 mb-1">Type your full name to accept</label>' +
+        '<input id="accept-name" type="text" autocomplete="name" placeholder="Your full name" ' +
+        'class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500" />';
+      totalBtn.appendChild(nameWrap);
+      const acceptBtn = document.createElement('button');
+      acceptBtn.type = 'button';
+      acceptBtn.className = 'h-10 text-white bg-orange-600 hover:bg-orange-700 inline-flex items-center justify-center px-4 gap-2 rounded-2xl text-sm font-medium';
+      acceptBtn.innerHTML = '<i class="fa-solid fa-signature"></i> Accept quote';
+      acceptBtn.onclick = function () {
+        var input = document.getElementById('accept-name');
+        acceptQuote(q.id, input ? String(input.value || '').trim() : '');
+      };
+      totalBtn.appendChild(declineBtn);
+      totalBtn.appendChild(acceptBtn);
+    } else {
+      setText('footer-message', 'Pay a ' + pct + '% deposit to accept this quote. The remaining balance is due when the work is complete.');
+      nextSteps.querySelector('ol').innerHTML =
+        '<li>Pay the ' + pct + '% deposit to lock in this quote.</li>' +
+        '<li>' + contractorLabel + ' will schedule the work.</li>' +
+        '<li>Remaining balance is due when the job is complete.</li>';
+      const payBtn = document.createElement('button');
+      payBtn.type = 'button';
+      payBtn.className = 'h-10 text-white bg-orange-600 hover:bg-orange-700 inline-flex items-center justify-center px-4 gap-2 rounded-2xl text-sm font-medium';
+      payBtn.innerHTML = '<i class="fa-solid fa-credit-card"></i> Pay ' + formatMoney(deposit) + ' Deposit';
+      payBtn.onclick = function () { payDeposit(q.id); };
+      totalBtn.appendChild(declineBtn);
+      totalBtn.appendChild(payBtn);
+    }
+  }
+
+  async function payDeposit(id) {
+    try {
+      const res = await fetch(SUPABASE_FUNCTIONS + '/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quote_id: id, payment_type: 'deposit' }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.url) { window.location.href = data.url; return; }
+      throw new Error('No checkout URL returned');
+    } catch (err) {
+      alert('Unable to start payment. Please try again or contact the contractor.');
+    }
+  }
+
+  async function acceptQuote(id, acceptedByName) {
+    if (!acceptedByName || acceptedByName.length < 2) {
+      alert('Please type your full name to accept this quote.');
+      return;
+    }
+    if (!confirm('Accept this quote as ' + acceptedByName + '?')) return;
+    try {
+      const res = await fetch(SUPABASE_FUNCTIONS + '/public-quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quote_id: id, action: 'accept', accepted_by_name: acceptedByName }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.error || 'Could not accept quote');
+      if (currentQuote) {
+        currentQuote.status = 'accepted';
+        currentQuote.accepted_by_name = acceptedByName;
+        currentQuote.acceptance_mode = 'accept';
+        renderQuote(currentQuote, currentHandyman || {});
+      }
+      alert('Quote accepted. The contractor has been notified.');
+    } catch (err) {
+      alert(err.message || 'Could not accept the quote.');
+    }
+  }
+
+  async function declineQuote(id) {
+    if (!confirm('Decline this quote? The contractor will be notified.')) return;
+    try {
+      const res = await fetch(SUPABASE_FUNCTIONS + '/public-quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quote_id: id, action: 'decline' }),
+      });
+      if (currentQuote) {
+        currentQuote.status = 'declined';
+        renderQuote(currentQuote, currentHandyman || {});
+      }
+      alert('Quote declined. Thank you for your response.');
+    } catch (err) {
+      alert('Could not decline the quote.');
+    }
+  }
+
+  loadQuote();
+})();
+</script>
 </body>
 </html>
