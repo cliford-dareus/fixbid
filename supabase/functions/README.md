@@ -10,7 +10,7 @@ Payment source of truth is **`stripe-webhook`**. The browser success page only c
 | `create-checkout-session` | Stripe Checkout; **server computes 50% deposit** |
 | `stripe-webhook` | Verify signature → mark quote `accepted` → insert `payments` → create `jobs` → Expo push |
 | `update-quote-on-success` | Success page helper (retrieve session; best-effort status) |
-| `estimate-job-cost` | **AI cost estimate** (xAI Grok) from description + photos; requires user JWT |
+| `estimate-job-cost` | **AI cost estimate** via **Google Gemini** and/or **xAI Grok**; requires user JWT |
 
 Shared helpers live in `_shared/` (`cors`, `supabase`, `expo-push`).
 
@@ -22,7 +22,7 @@ Shared helpers live in `_shared/` (`cors`, `supabase`, `expo-push`).
 4. **Webhook** — verify `stripe-signature` with `STRIPE_WEBHOOK_SECRET`; idempotent on `stripe_payment_intent_id`.
 5. **Storage** — uploads only under `{auth.uid()}/...` in `quote-photos`; public read for client-facing photos.
 6. **Secrets** — only in Supabase secrets / CI; never in `EXPO_PUBLIC_*`.
-7. **AI estimates** — `estimate-job-cost` requires a valid user JWT; keep `XAI_API_KEY` server-side only.
+7. **AI estimates** — `estimate-job-cost` requires a valid user JWT; keep `XAI_API_KEY` / `GEMINI_API_KEY` server-side only.
 
 ## Environment secrets
 
@@ -33,14 +33,19 @@ supabase secrets set \
   PUBLIC_QUOTE_URL=https://fixbid-ten.vercel.app \
   STRIPE_CONNECT=false \
   PLATFORM_FEE_PERCENT=0 \
+  GEMINI_API_KEY=AIza... \
   XAI_API_KEY=xai-...
 ```
 
 Optional:
 
-- `XAI_MODEL` — default `grok-4.1-fast` (vision-capable preferred for photo estimates)
-- `STRIPE_CONNECT=true` — destination charges to `profiles.stripe_account_id`
-- `PLATFORM_FEE_PERCENT` — application fee percent when Connect is on
+| Secret | Default | Notes |
+|--------|---------|--------|
+| `ESTIMATE_PROVIDER` | `auto` | `gemini` · `xai` · `auto` (try Gemini then xAI) |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | Vision-capable Flash is a good cost default |
+| `XAI_MODEL` | `grok-4.1-fast` | Vision-capable preferred for photos |
+| `STRIPE_CONNECT` | `false` | Destination charges to `profiles.stripe_account_id` |
+| `PLATFORM_FEE_PERCENT` | `0` | Application fee when Connect is on |
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically in hosted functions.
 
@@ -72,10 +77,21 @@ supabase functions deploy estimate-job-cost
 ```
 App (photo + description)
   → upload photos to storage (public URLs)
-  → POST estimate-job-cost (user JWT)
-  → xAI chat/completions (JSON line items)
+  → POST estimate-job-cost (user JWT, optional provider)
+  → Gemini and/or xAI (JSON line items)
   → Apply to draft quote builder
 ```
+
+**Provider selection**
+
+- Server: `ESTIMATE_PROVIDER=auto|gemini|xai`
+- Request body: `{ "provider": "gemini" }` overrides for that call
+- `auto`: try Gemini first (if key set), then xAI
+
+Get keys:
+
+- Gemini → [Google AI Studio](https://aistudio.google.com/apikey)
+- xAI → [console.x.ai](https://console.x.ai)
 
 ## Notes
 
