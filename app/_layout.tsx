@@ -8,6 +8,7 @@ import {
 } from "@expo-google-fonts/inter";
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {GestureHandlerRootView} from "react-native-gesture-handler";
+import {KeyboardProvider} from "react-native-keyboard-controller";
 import {Stack, SplashScreen} from 'expo-router';
 import {useEffect} from 'react';
 import {QueryClientProvider} from '@tanstack/react-query';
@@ -63,6 +64,7 @@ export default function RootLayout() {
                 <StripeProvider publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY!}>
                     <SafeAreaProvider>
                         <GestureHandlerRootView style={{flex: 1}}>
+                            <KeyboardProvider>
                             <ToastProvider>
                                 <AuthProvider>
                                     <ProfileProvider>
@@ -75,8 +77,12 @@ export default function RootLayout() {
                                                         <Stack.Screen name="(auth)" options={{headerShown: false}}/>
                                                         <Stack.Screen name="(tabs)" options={{headerShown: false}}/>
 
-                                                        <Stack.Screen name="quotes/new" options={{headerShown: false, presentation: 'modal'}}/>
-                                                        <Stack.Screen name="quotes/[id]" options={{headerShown: false}}/>
+                                                        <Stack.Screen name="quote/new" options={{headerShown: false, presentation: 'modal'}}/>
+                                                        <Stack.Screen name="quote/[id]" options={{headerShown: false}}/>
+                                                        <Stack.Screen name="job/[id]" options={{headerShown: false}}/>
+                                                        <Stack.Screen name="client/new" options={{headerShown: false, presentation: 'modal'}}/>
+                                                        <Stack.Screen name="client/[id]" options={{headerShown: false}}/>
+                                                        <Stack.Screen name="template/[id]" options={{headerShown: false}}/>
                                                         <Stack.Screen name="settings" options={{headerShown: false, presentation: 'modal'}}/>
                                                     </Stack>
                                                 </ErrorBoundary>
@@ -85,6 +91,7 @@ export default function RootLayout() {
                                     </ProfileProvider>
                                 </AuthProvider>
                             </ToastProvider>
+                            </KeyboardProvider>
                         </GestureHandlerRootView>
                     </SafeAreaProvider>
                 </StripeProvider>
