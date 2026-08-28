@@ -13,6 +13,10 @@
         body { font-family: Inter, system-ui, -apple-system, sans-serif; }
         .hammer-icon { font-size: 2rem; }
         #contractor-logo { max-height: 56px; max-width: 56px; object-fit: contain; border-radius: 12px; }
+        .scope-list { list-style: none; padding: 0; margin: 0; }
+        .scope-list li { position: relative; padding-left: 1.25rem; margin-bottom: 0.4rem; font-size: 0.875rem; line-height: 1.4; color: #475569; }
+        .scope-list.included li::before { content: "✓"; position: absolute; left: 0; color: #16a34a; font-weight: 700; }
+        .scope-list.excluded li::before { content: "–"; position: absolute; left: 0; color: #94a3b8; font-weight: 700; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen py-8">
@@ -33,6 +37,7 @@
                         <span id="contractor-location" class="flex items-center gap-1.5"></span>
                     </div>
                     <p id="contractor-license" class="text-xs text-slate-400 mt-1 hidden"></p>
+                    <p id="contractor-insurance" class="text-xs text-slate-400 mt-0.5 hidden"></p>
                 </div>
             </div>
             <div class="flex flex-col items-end gap-2">
@@ -40,6 +45,7 @@
                     Quote #<span id="quote-id" class="font-mono"></span>
                 </div>
                 <div id="issued-date" class="text-sm font-medium text-slate-500"></div>
+                <div id="valid-until" class="text-sm text-slate-500 hidden"></div>
                 <div id="status-badge" class="hidden text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full"></div>
             </div>
         </div>
@@ -62,6 +68,12 @@
             </div>
         </div>
 
+        <!-- Job photos -->
+        <div id="photos-section" class="px-8 pb-6 hidden">
+            <p class="uppercase text-xs font-bold tracking-widest text-slate-400 mb-3">Job photos</p>
+            <div id="photos-grid" class="flex flex-wrap gap-3"></div>
+        </div>
+
         <div class="h-3 bg-slate-50 w-full"></div>
 
         <div class="px-8 pb-8 overflow-x-auto">
@@ -78,11 +90,32 @@
             </table>
         </div>
 
+        <!-- Scope: included / not included -->
+        <div id="scope-section" class="px-8 pb-6 grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+            <div id="inclusions-block" class="rounded-2xl bg-emerald-50 border border-emerald-100 p-5 hidden">
+                <h4 class="text-sm font-bold text-emerald-900 mb-2">Included</h4>
+                <ul id="inclusions-list" class="scope-list included"></ul>
+            </div>
+            <div id="exclusions-block" class="rounded-2xl bg-slate-50 border border-slate-100 p-5 hidden">
+                <h4 class="text-sm font-bold text-slate-800 mb-2">Not included</h4>
+                <ul id="exclusions-list" class="scope-list excluded"></ul>
+            </div>
+        </div>
+
+        <div id="warranty-block" class="px-8 pb-6 hidden">
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 flex gap-3 items-start">
+                <i class="fa-solid fa-shield-halved text-orange-600 mt-0.5"></i>
+                <div>
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Warranty</p>
+                    <p id="warranty-text" class="text-sm text-slate-700 mt-1"></p>
+                </div>
+            </div>
+        </div>
+
         <div class="flex flex-col justify-between gap-8 md:flex-row p-8">
             <div class="max-w-sm">
-                <h4 class="text-sm font-bold text-slate-900">Notes & Conditions</h4>
+                <h4 class="text-sm font-bold text-slate-900">Notes</h4>
                 <p id="quote_note" class="mt-2 text-sm leading-relaxed text-slate-500"></p>
-                <p class="mt-4 text-xs text-slate-400">This quote is valid for 30 days. Deposit secures your booking; balance is due upon completion.</p>
             </div>
             <div class="w-full md:w-80">
                 <div class="space-y-3">
@@ -101,7 +134,7 @@
                     </div>
                     <div class="rounded-xl bg-orange-50 border border-orange-100 p-4 space-y-2">
                         <div class="flex justify-between text-sm">
-                            <span class="text-orange-800 font-medium">Deposit due today (50%)</span>
+                            <span id="deposit-label" class="text-orange-800 font-medium">Deposit due today</span>
                             <span id="deposit-amount" class="font-bold text-orange-900"></span>
                         </div>
                         <div class="flex justify-between text-sm">
@@ -113,9 +146,21 @@
             </div>
         </div>
 
+        <!-- What happens next -->
+        <div id="next-steps" class="px-8 pb-6">
+            <div class="rounded-2xl bg-slate-50 border border-slate-100 p-5">
+                <h4 class="text-sm font-bold text-slate-900 mb-3">What happens next</h4>
+                <ol class="space-y-2 text-sm text-slate-600 list-decimal list-inside">
+                    <li>Pay the deposit securely with Stripe (card).</li>
+                    <li>You'll get a receipt; we'll confirm scheduling shortly.</li>
+                    <li>Balance is due when the work is complete.</li>
+                </ol>
+            </div>
+        </div>
+
         <div class="bg-slate-50 p-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200">
             <p id="footer-message" class="text-sm text-slate-500 max-w-md">
-                Pay a 50% deposit to accept this quote. The remaining balance is due when the work is complete.
+                Pay the deposit to accept this quote. The remaining balance is due when the work is complete.
             </p>
             <div id="total_btn" class="flex flex-wrap items-center gap-3"></div>
         </div>
@@ -163,6 +208,34 @@
         el.appendChild(document.createTextNode(text));
     }
 
+    /** Split multiline / bullet text into list items. */
+    function parseScopeLines(text) {
+        if (!text || !String(text).trim()) return [];
+        return String(text)
+            .split(/\r?\n|[•·]/)
+            .map(function (s) { return s.replace(/^[\-\*\d\.\)\s]+/, '').trim(); })
+            .filter(Boolean);
+    }
+
+    function fillScopeList(listId, blockId, text) {
+        const list = document.getElementById(listId);
+        const block = document.getElementById(blockId);
+        if (!list || !block) return false;
+        list.innerHTML = '';
+        const lines = parseScopeLines(text);
+        if (!lines.length) {
+            block.classList.add('hidden');
+            return false;
+        }
+        lines.forEach(function (line) {
+            const li = document.createElement('li');
+            li.textContent = line;
+            list.appendChild(li);
+        });
+        block.classList.remove('hidden');
+        return true;
+    }
+
     function applyHandymanBranding(h) {
         const name = (h.business_name || h.full_name || 'Professional Handyman').trim();
         setText('contractor-name', name);
@@ -194,6 +267,17 @@
                 licEl.classList.remove('hidden');
             } else {
                 licEl.classList.add('hidden');
+            }
+        }
+
+        const ins = (h.insurance_info || '').trim();
+        const insEl = document.getElementById('contractor-insurance');
+        if (insEl) {
+            if (ins) {
+                insEl.textContent = 'Insurance: ' + ins;
+                insEl.classList.remove('hidden');
+            } else {
+                insEl.classList.add('hidden');
             }
         }
 
@@ -245,7 +329,9 @@
         const total = Number(q.total_amount) || lineItems.reduce(function (acc, item) {
             return acc + (Number(item.unit_price) * Number(item.quantity));
         }, 0);
-        const deposit = Math.round(total * 50) / 100;
+        var pct = Number(q.deposit_percent);
+        if (!pct || pct <= 0 || pct > 100) pct = 50;
+        const deposit = Math.round(total * pct) / 100;
         const balance = Math.round((total - deposit) * 100) / 100;
         const status = (q.status || 'sent').toLowerCase();
         const isPaid = PAID_STATUSES.indexOf(status) !== -1;
@@ -255,6 +341,19 @@
         setText('issued-date', 'Issued on ' + new Date(q.created_at).toLocaleDateString('en-US', {
             month: 'long', day: 'numeric', year: 'numeric'
         }));
+
+        const validEl = document.getElementById('valid-until');
+        if (validEl) {
+            if (q.valid_until) {
+                const vd = new Date(q.valid_until + (String(q.valid_until).length === 10 ? 'T12:00:00' : ''));
+                validEl.textContent = 'Valid until ' + vd.toLocaleDateString('en-US', {
+                    month: 'long', day: 'numeric', year: 'numeric'
+                });
+                validEl.classList.remove('hidden');
+            } else {
+                validEl.classList.add('hidden');
+            }
+        }
 
         const badge = document.getElementById('status-badge');
         if (badge) {
@@ -277,6 +376,26 @@
         setText('job-name', q.job_name || 'Service quote');
         setIconRow('project-address', 'fa-solid fa-location-dot', q.project_address || q.address || '');
 
+        // Photos
+        const photos = Array.isArray(q.photos) ? q.photos.filter(Boolean) : [];
+        const photosSection = document.getElementById('photos-section');
+        const photosGrid = document.getElementById('photos-grid');
+        if (photosSection && photosGrid) {
+            photosGrid.innerHTML = '';
+            if (photos.length) {
+                photos.forEach(function (url) {
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.alt = 'Job photo';
+                    img.className = 'h-28 w-28 object-cover rounded-xl border border-slate-200';
+                    photosGrid.appendChild(img);
+                });
+                photosSection.classList.remove('hidden');
+            } else {
+                photosSection.classList.add('hidden');
+            }
+        }
+
         const tbody = document.getElementById('line-items');
         tbody.innerHTML = '';
         lineItems.forEach(function (item) {
@@ -284,12 +403,28 @@
             tr.className = 'hover:bg-slate-50';
             const qty = Number(item.quantity) || 0;
             const price = Number(item.unit_price) || 0;
-            const cells = [item.description || '', String(qty), formatMoney(price), formatMoney(price * qty)];
-            const aligns = ['text-left', 'text-center', 'text-right', 'text-right font-semibold'];
-            cells.forEach(function (val, i) {
+
+            const tdDesc = document.createElement('td');
+            tdDesc.className = 'py-6 text-left';
+            const descWrap = document.createElement('div');
+            descWrap.className = 'flex items-start gap-3';
+            if (item.photo_url) {
+                const thumb = document.createElement('img');
+                thumb.src = item.photo_url;
+                thumb.alt = '';
+                thumb.className = 'h-12 w-12 rounded-lg object-cover border border-slate-200 shrink-0';
+                descWrap.appendChild(thumb);
+            }
+            const descText = document.createElement('span');
+            descText.textContent = item.description || '';
+            descWrap.appendChild(descText);
+            tdDesc.appendChild(descWrap);
+            tr.appendChild(tdDesc);
+
+            [['text-center', String(qty)], ['text-right', formatMoney(price)], ['text-right font-semibold', formatMoney(price * qty)]].forEach(function (pair) {
                 const td = document.createElement('td');
-                td.className = 'py-6 ' + aligns[i];
-                td.textContent = val;
+                td.className = 'py-6 ' + pair[0];
+                td.textContent = pair[1];
                 tr.appendChild(td);
             });
             tbody.appendChild(tr);
@@ -304,14 +439,38 @@
         setText('total-amount', formatMoney(total));
         setText('deposit-amount', formatMoney(deposit));
         setText('balance-amount', formatMoney(balance));
-        setText('quote_note', q.notes || 'No notes provided');
+        setText('deposit-label', 'Deposit due today (' + pct + '%)');
+        setText('quote_note', q.notes || '—');
+
+        // Scope
+        const hasInc = fillScopeList('inclusions-list', 'inclusions-block', q.inclusions);
+        const hasExc = fillScopeList('exclusions-list', 'exclusions-block', q.exclusions);
+        const scopeSection = document.getElementById('scope-section');
+        if (scopeSection) {
+            if (hasInc || hasExc) scopeSection.classList.remove('hidden');
+            else scopeSection.classList.add('hidden');
+        }
+
+        const warranty = (q.warranty_text || '').trim();
+        const warrantyBlock = document.getElementById('warranty-block');
+        if (warrantyBlock) {
+            if (warranty) {
+                setText('warranty-text', warranty);
+                warrantyBlock.classList.remove('hidden');
+            } else {
+                warrantyBlock.classList.add('hidden');
+            }
+        }
 
         const contractorLabel = (h.business_name || h.full_name || 'your contractor').trim();
         const totalBtn = document.getElementById('total_btn');
         totalBtn.innerHTML = '';
 
+        const nextSteps = document.getElementById('next-steps');
+
         if (isPaid) {
             setText('footer-message', 'Thank you — your deposit was received. ' + contractorLabel + ' will contact you to schedule the work.');
+            if (nextSteps) nextSteps.classList.add('hidden');
             const done = document.createElement('div');
             done.className = 'flex items-center gap-2 text-green-700 font-semibold';
             done.innerHTML = '<i class="fa-solid fa-circle-check"></i> Deposit received';
@@ -321,8 +480,12 @@
 
         if (isDeclined) {
             setText('footer-message', 'This quote was declined. Contact ' + contractorLabel + ' if you would like a revised quote.');
+            if (nextSteps) nextSteps.classList.add('hidden');
             return;
         }
+
+        if (nextSteps) nextSteps.classList.remove('hidden');
+        setText('footer-message', 'Pay a ' + pct + '% deposit to accept this quote. The remaining balance is due when the work is complete.');
 
         const declineBtn = document.createElement('button');
         declineBtn.type = 'button';
