@@ -23,6 +23,7 @@ import * as Clipboard from 'expo-clipboard';
 import {quotesApi} from '@/lib/data';
 import {uploadPhotoFromUri} from '@/lib/upload-photo';
 import {publicQuoteUrl} from '@/lib/config';
+import {estimateJobCost, estimateToDraftLineItems} from '@/lib/ai-estimate';
 import {Feather} from '@expo/vector-icons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {calculateJobCost, JOB_TEMPLATES} from '@/data/templates';
@@ -43,6 +44,7 @@ export default function NewQuote() {
     draft.lineItems.length > 0 || draft.jobName ? 'details' : 'photo',
   );
   const [saving, setSaving] = useState(false);
+  const [estimating, setEstimating] = useState(false);
   const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
   const [postSaveVisible, setPostSaveVisible] = useState(false);
   const [postSaveBusy, setPostSaveBusy] = useState(false);
@@ -128,6 +130,76 @@ export default function NewQuote() {
 
   const resetForm = () => {
     draft.reset();
+  };
+
+  const handleAiEstimate = async () => {
+    if (!draft.jobName.trim() && draft.photos.length === 0) {
+      Alert.alert('Need input', 'Add a short description and/or job photos for an AI estimate.');
+      return;
+    }
+    if (!user?.id) {
+      Alert.alert('Not logged in');
+      return;
+    }
+
+    setEstimating(true);
+    try {
+      const photoUrls: string[] = [];
+      for (const uri of draft.photos.slice(0, 3)) {
+        if (uri.startsWith('http')) {
+          photoUrls.push(uri);
+        } else {
+          try {
+            photoUrls.push(await uploadPhotoFromUri(uri, user.id));
+          } catch (e) {
+            console.warn('photo upload for AI estimate failed', e);
+          }
+        }
+      }
+
+      const region = [profile?.city, profile?.state].filter(Boolean).join(', ');
+      const estimate = await estimateJobCost({
+        description: draft.jobName.trim(),
+        photoUrls,
+        hourlyRate: profile?.hourly_rate,
+        region: region || undefined,
+      });
+
+      const confPct = Math.round((estimate.confidence || 0) * 100);
+      Alert.alert(
+        estimate.job_name || 'AI estimate',
+        `${estimate.summary || ''}\n\nSuggested total: $${estimate.suggested}\nLabor ~${estimate.labor_hours}h @ $${estimate.labor_rate}/hr\nConfidence: ${confPct}%\n\nApply these line items to the quote?`,
+        [
+          {text: 'Cancel', style: 'cancel'},
+          {
+            text: 'Apply estimate',
+            onPress: () => {
+              const noteParts = [
+                estimate.notes,
+                estimate.upsells?.length
+                  ? `Suggested upsells: ${estimate.upsells.join(', ')}`
+                  : '',
+              ].filter(Boolean);
+              draft.applyTemplateDraft({
+                jobName: estimate.job_name,
+                totalAmount: estimate.suggested,
+                notes: noteParts.join('\n') || draft.notes,
+                lineItems: estimateToDraftLineItems(estimate),
+              });
+              setStep('details');
+            },
+          },
+        ],
+      );
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert(
+        'AI estimate failed',
+        e?.message || 'Check XAI_API_KEY on the edge function, or use a template instead.',
+      );
+    } finally {
+      setEstimating(false);
+    }
   };
 
   const handleSave = async () => {
@@ -474,7 +546,7 @@ export default function NewQuote() {
             <Feather name="camera" size={40} color="#94A3B8" />
             <Text className="text-[22px] font-extrabold text-white">Photo → Quote</Text>
             <Text className="text-center text-sm leading-5 text-slate-400">
-              Take or upload photos of the job. We'll suggest the right template automatically.
+              Add photos and a short description. Get an AI cost estimate or match a template.
             </Text>
           </View>
 
@@ -519,7 +591,7 @@ export default function NewQuote() {
 
           <View className="gap-2">
             <Text className="text-muted-foreground text-xs font-bold uppercase tracking-[0.5px]">
-              Job description (optional)
+              Job description
             </Text>
             <TextInput
               className="rounded-[12px] border border-zinc-200 bg-card px-4 py-3 text-[15px] text-foreground"
@@ -531,15 +603,32 @@ export default function NewQuote() {
 
           <TouchableOpacity
             className="flex-row items-center justify-center gap-2 rounded-[14px] bg-primary p-4"
+            onPress={handleAiEstimate}
+            activeOpacity={0.85}
+            disabled={estimating}
+          >
+            {estimating ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Feather name="cpu" size={18} color="#fff" />
+                <Text className="text-base font-bold text-white">AI cost estimate</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="flex-row items-center justify-center gap-2 rounded-[14px] border border-zinc-300 p-4"
             onPress={suggestTemplate}
             activeOpacity={0.85}
+            disabled={estimating}
           >
-            <Text className="text-base font-bold text-white">
+            <Text className="text-foreground text-base font-bold">
               {draft.photos.length > 0 || draft.jobName
-                ? 'Suggest template & continue'
+                ? 'Suggest template instead'
                 : 'Skip to quote builder'}
             </Text>
-            <Feather name="arrow-right" size={18} color="#fff" />
+            <Feather name="arrow-right" size={18} color={colors.foreground || '#111'} />
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -563,7 +652,13 @@ export default function NewQuote() {
           <Feather name="arrow-left" size={24} color={colors.foreground || '#111'} />
         </TouchableOpacity>
         <Text className="text-foreground text-[17px] font-bold">Quote details</Text>
-        <View className="w-10" />
+        <TouchableOpacity onPress={handleAiEstimate} disabled={estimating} className="px-1">
+          {estimating ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Feather name="cpu" size={22} color={colors.primary || '#f97316'} />
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView
