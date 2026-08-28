@@ -51,6 +51,10 @@ export function mapQuoteRow(row: Row): Quote {
     deposit_percent:
       row.deposit_percent != null ? Number(row.deposit_percent) : null,
     valid_until: row.valid_until ?? null,
+    acceptance_mode:
+      row.acceptance_mode === 'accept' ? 'accept' : 'deposit',
+    accepted_at: row.accepted_at ?? null,
+    accepted_by_name: row.accepted_by_name ?? null,
   };
 }
 
@@ -109,6 +113,8 @@ export function mapProfileRow(row: Row): Profile {
       row.deposit_percent != null ? Number(row.deposit_percent) : 50,
     quote_valid_days:
       row.quote_valid_days != null ? Number(row.quote_valid_days) : 30,
+    default_acceptance_mode:
+      row.default_acceptance_mode === 'accept' ? 'accept' : 'deposit',
   };
 }
 
@@ -128,6 +134,9 @@ export function quoteUpdatesToDb(updates: Partial<Quote>): Record<string, unknow
   if (updates.warranty_text !== undefined) db.warranty_text = updates.warranty_text;
   if (updates.deposit_percent !== undefined) db.deposit_percent = updates.deposit_percent;
   if (updates.valid_until !== undefined) db.valid_until = updates.valid_until;
+  if (updates.acceptance_mode !== undefined) db.acceptance_mode = updates.acceptance_mode;
+  if (updates.accepted_at !== undefined) db.accepted_at = updates.accepted_at;
+  if (updates.accepted_by_name !== undefined) db.accepted_by_name = updates.accepted_by_name;
   return db;
 }
 
@@ -191,5 +200,8 @@ export function profileUpdatesToDb(updates: Partial<Profile>): Record<string, un
   if (updates.warranty_text !== undefined) db.warranty_text = updates.warranty_text;
   if (updates.deposit_percent !== undefined) db.deposit_percent = updates.deposit_percent;
   if (updates.quote_valid_days !== undefined) db.quote_valid_days = updates.quote_valid_days;
+  if (updates.default_acceptance_mode !== undefined) {
+    db.default_acceptance_mode = updates.default_acceptance_mode;
+  }
   return db;
 }
