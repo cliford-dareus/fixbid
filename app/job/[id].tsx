@@ -1,5 +1,6 @@
 import {Feather} from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import {router, useLocalSearchParams} from 'expo-router';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
@@ -8,6 +9,7 @@ import {
   Image,
   Platform,
   ScrollView,
+  Share,
   Text,
   TouchableOpacity,
   View,
@@ -18,6 +20,7 @@ import {useAuth} from '@/context/auth-context';
 import {useQuote} from '@/context/quote-context';
 import useThemedNavigation from '@/hooks/use-navigation-theme';
 import useThemeColors from '@/hooks/use-theme-color';
+import {publicBalanceUrl} from '@/lib/config';
 import {paymentsApi, type PaymentRecord} from '@/lib/data';
 import {cn} from '@/lib/utils';
 import {notifyError, notifySuccess, notifyWarning} from '@/lib/feedback';
@@ -111,6 +114,30 @@ export default function JobDetailScreen() {
           updateJob(job.id, {after_photos: [...job.after_photos, uri]});
         }
       }
+    }
+  };
+
+  const shareBalanceLink = async () => {
+    if (!job?.quote_id) {
+      notifyWarning('No quote linked', 'This job has no quote to collect a balance from.');
+      return;
+    }
+    if (balance <= 0) {
+      notifySuccess('Paid in full', 'Nothing left to collect.');
+      return;
+    }
+    const link = publicBalanceUrl(job.quote_id);
+    try {
+      await Clipboard.setStringAsync(link);
+    } catch {}
+    try {
+      await Share.share({
+        message: `Pay the remaining balance ($${balance.toFixed(2)}) for ${job.job_name}: ${link}`,
+        url: link,
+        title: `Balance due — ${job.job_name}`,
+      });
+    } catch {
+      notifySuccess('Link copied', 'Balance payment link is on the clipboard.');
     }
   };
 
@@ -267,7 +294,18 @@ export default function JobDetailScreen() {
           <View className="mb-3 flex-row items-center justify-between">
             <CardTitle className="mb-0">Payments</CardTitle>
             {balance > 0 ? (
-              <Button title="Record" size="sm" icon="plus" onPress={() => setShowPayment(true)} />
+              <View className="flex-row items-center gap-2">
+                {job.quote_id ? (
+                  <Button
+                    title="Share link"
+                    size="sm"
+                    variant="outline"
+                    icon="link"
+                    onPress={shareBalanceLink}
+                  />
+                ) : null}
+                <Button title="Record" size="sm" icon="plus" onPress={() => setShowPayment(true)} />
+              </View>
             ) : null}
           </View>
 
