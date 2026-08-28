@@ -15,7 +15,15 @@ import * as Sharing from 'expo-sharing';
 import {useAuth} from '@/context/auth-context';
 import {useProfile} from '@/context/profile-context';
 import {useQuote} from '@/context/quote-context';
-import {jobsApi, quotesApi, type Job, type LineItem, type Quote} from '@/lib/data';
+import {
+  jobsApi,
+  quotesApi,
+  revisionsApi,
+  type Job,
+  type LineItem,
+  type Quote,
+  type QuoteRevision,
+} from '@/lib/data';
 import {pdfHeaderHtml} from '@/lib/branding';
 import {publicQuoteUrl} from '@/lib/config';
 import * as Clipboard from 'expo-clipboard';
@@ -45,6 +53,31 @@ function lineItemsToEdit(items: LineItem[]): EditLine[] {
   }));
 }
 
+function reasonLabel(reason: string): string {
+  switch (reason) {
+    case 'revise_after_decline':
+      return 'Revised after decline';
+    case 'revise':
+      return 'Price / scope edit';
+    case 'manual_edit':
+      return 'Manual edit';
+    default:
+      return reason.replace(/_/g, ' ');
+  }
+}
+
+function formatDateTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export default function QuoteDetail() {
   const {id} = useLocalSearchParams<{id: string}>();
   const router = useRouter();
@@ -53,6 +86,8 @@ export default function QuoteDetail() {
   const {updateQuote, fetchJobs, fetchQuotes} = useQuote();
   const [quote, setQuote] = useState<Quote | null>(null);
   const [linkedJob, setLinkedJob] = useState<Job | null>(null);
+  const [revisions, setRevisions] = useState<QuoteRevision[]>([]);
+  const [expandedRev, setExpandedRev] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -69,6 +104,12 @@ export default function QuoteDetail() {
     else setLinkedJob(null);
   }, []);
 
+  const loadRevisions = useCallback(async (quoteId: string) => {
+    const result = await revisionsApi.listRevisions(quoteId);
+    if (result.ok) setRevisions(result.data);
+    else setRevisions([]);
+  }, []);
+
   const fetchQuote = useCallback(async () => {
     if (!id) return;
 
@@ -78,12 +119,13 @@ export default function QuoteDetail() {
       Alert.alert('Error', result.error || 'Failed to load quote details');
       setQuote(null);
       setLinkedJob(null);
+      setRevisions([]);
     } else {
       setQuote(result.data);
-      await loadLinkedJob(result.data.id);
+      await Promise.all([loadLinkedJob(result.data.id), loadRevisions(result.data.id)]);
     }
     setLoading(false);
-  }, [id, loadLinkedJob]);
+  }, [id, loadLinkedJob, loadRevisions]);
 
   useEffect(() => {
     fetchQuote();
@@ -131,10 +173,18 @@ export default function QuoteDetail() {
     }
 
     const total = cleaned.reduce((s, li) => s + li.quantity * li.unit_price, 0);
+    const reason =
+      (quote.status || '').toLowerCase() === 'declined'
+        ? 'revise_after_decline'
+        : 'revise';
 
     setBusy(true);
     try {
-      const result = await quotesApi.replaceLineItems(quote.id, cleaned, total);
+      const result = await quotesApi.replaceLineItems(quote.id, cleaned, total, {
+        reason,
+        newStatus: 'draft',
+        note: thenSend ? 'Saved and sent to client' : 'Saved as draft',
+      });
       if (!result.ok) throw new Error(result.error);
 
       await updateQuote(quote.id, {
@@ -144,18 +194,14 @@ export default function QuoteDetail() {
         total_amount: total,
       });
 
-      setQuote(result.data);
-      setQuote((prev) =>
-        prev
-          ? {
-              ...result.data,
-              job_name: editJobName.trim(),
-              notes: editNotes,
-              status: 'draft',
-            }
-          : prev,
-      );
+      setQuote({
+        ...result.data,
+        job_name: editJobName.trim(),
+        notes: editNotes,
+        status: 'draft',
+      });
       setRevising(false);
+      await loadRevisions(quote.id);
 
       try {
         await fetchQuotes();
@@ -166,7 +212,7 @@ export default function QuoteDetail() {
       if (thenSend) {
         await sendToClientAfterRevise(result.data.id, result.data.client_name);
       } else {
-        Alert.alert('Saved', 'Quote updated as draft. You can send it when ready.');
+        Alert.alert('Saved', 'Quote updated as draft. Revision recorded.');
       }
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not save revision');
@@ -258,7 +304,6 @@ export default function QuoteDetail() {
 
     setBusy(true);
     try {
-      // Race-safe: webhook may have created the job already
       const existing = await jobsApi.getJobByQuoteId(quote.id);
       if (existing.ok && existing.data) {
         setLinkedJob(existing.data);
@@ -456,14 +501,19 @@ export default function QuoteDetail() {
           <Text className="text-[13px] text-slate-400">{quote.client_phone}</Text>
           <Text className="mt-1 text-[13px] text-slate-500">{formatDate(quote.created_at)}</Text>
           <Text className="mt-3 text-[13px] text-slate-400">50% deposit: ${deposit.toFixed(2)}</Text>
+          {revisions.length > 0 ? (
+            <Text className="mt-2 text-[12px] text-slate-500">
+              {revisions.length} revision{revisions.length === 1 ? '' : 's'} recorded
+            </Text>
+          ) : null}
         </View>
 
-        {/* —— Revise mode (declined or manual) —— */}
         {revising ? (
           <View className="mb-3 gap-3">
             <View className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5">
               <Text className="text-[14px] font-semibold text-amber-900">
-                Adjust pricing or scope, then save as draft or send again.
+                Adjust pricing or scope, then save as draft or send again. Previous totals are kept in
+                revision history.
               </Text>
             </View>
 
@@ -669,9 +719,7 @@ export default function QuoteDetail() {
                   ) : (
                     <>
                       <Feather name="briefcase" size={18} color="#fff" />
-                      <Text className="text-[15px] font-bold text-white">
-                        Accept & create job
-                      </Text>
+                      <Text className="text-[15px] font-bold text-white">Accept & create job</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -722,7 +770,7 @@ export default function QuoteDetail() {
             )}
 
             {status === 'declined' && (
-              <View className="gap-2">
+              <View className="mb-2 gap-2">
                 <View className="flex-row items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5">
                   <Feather name="x-circle" size={20} color="#b91c1c" />
                   <Text className="flex-1 text-[14px] font-semibold text-red-800">
@@ -739,6 +787,102 @@ export default function QuoteDetail() {
                 </TouchableOpacity>
               </View>
             )}
+
+            {/* Revision history */}
+            <View className="bg-card mb-4 mt-2 rounded-2xl p-4">
+              <Text className="text-foreground mb-3 text-[14px] font-bold uppercase tracking-[0.5px]">
+                Revision history
+              </Text>
+              {revisions.length === 0 ? (
+                <Text className="text-muted-foreground text-[13px]">
+                  No revisions yet. History appears when you revise pricing or scope.
+                </Text>
+              ) : (
+                revisions.map((rev) => {
+                  const open = expandedRev === rev.id;
+                  const delta =
+                    rev.previous_total != null && rev.new_total != null
+                      ? rev.new_total - rev.previous_total
+                      : null;
+                  return (
+                    <TouchableOpacity
+                      key={rev.id}
+                      className="mb-2 rounded-xl border border-zinc-200 p-3"
+                      activeOpacity={0.85}
+                      onPress={() => setExpandedRev(open ? null : rev.id)}
+                    >
+                      <View className="flex-row items-start justify-between gap-2">
+                        <View className="flex-1">
+                          <Text className="text-foreground text-[14px] font-bold">
+                            Rev #{rev.revision_number} · {reasonLabel(rev.reason)}
+                          </Text>
+                          <Text className="text-muted-foreground mt-0.5 text-[12px]">
+                            {formatDateTime(rev.created_at)}
+                          </Text>
+                        </View>
+                        <Feather
+                          name={open ? 'chevron-up' : 'chevron-down'}
+                          size={18}
+                          color={colors.mutedForeground || '#94a3b8'}
+                        />
+                      </View>
+
+                      <Text className="text-foreground mt-2 text-[13px]">
+                        {rev.previous_total != null
+                          ? `$${Number(rev.previous_total).toFixed(2)}`
+                          : '—'}
+                        {' → '}
+                        {rev.new_total != null
+                          ? `$${Number(rev.new_total).toFixed(2)}`
+                          : '—'}
+                        {delta != null ? (
+                          <Text
+                            className={
+                              delta < 0
+                                ? ' text-green-600'
+                                : delta > 0
+                                  ? ' text-amber-700'
+                                  : ' text-muted-foreground'
+                            }
+                          >
+                            {` (${delta > 0 ? '+' : ''}$${delta.toFixed(2)})`}
+                          </Text>
+                        ) : null}
+                      </Text>
+
+                      {(rev.previous_status || rev.new_status) && (
+                        <Text className="text-muted-foreground mt-1 text-[12px] capitalize">
+                          Status: {rev.previous_status || '—'} → {rev.new_status || '—'}
+                        </Text>
+                      )}
+
+                      {open && (
+                        <View className="mt-3 border-t border-zinc-100 pt-3">
+                          <Text className="text-muted-foreground mb-1 text-[11px] font-bold uppercase">
+                            Snapshot before change
+                          </Text>
+                          <Text className="text-foreground text-[13px] font-semibold">
+                            {rev.snapshot?.job_name || '—'}
+                          </Text>
+                          {(rev.snapshot?.line_items || []).map((li, i) => (
+                            <Text key={i} className="text-muted-foreground mt-1 text-[12px]">
+                              {li.description} · {li.quantity} × ${
+                                Number(li.unit_price).toFixed(2)
+                              }
+                            </Text>
+                          ))}
+                          {rev.note ? (
+                            <Text className="text-muted-foreground mt-2 text-[12px] italic">
+                              {rev.note}
+                            </Text>
+                          ) : null}
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </View>
           </>
         )}
       </ScrollView>
