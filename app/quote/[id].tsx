@@ -1,1 +1,610 @@
-PLACEHOLDER
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  Share,
+  TextInput,
+} from 'react-native';
+import {useLocalSearchParams, useRouter} from 'expo-router';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import {useAuth} from '@/context/auth-context';
+import {useProfile} from '@/context/profile-context';
+import {useQuote} from '@/context/quote-context';
+import {
+  jobsApi,
+  quotesApi,
+  revisionsApi,
+  type Job,
+  type LineItem,
+  type Quote,
+  type QuoteRevision,
+} from '@/lib/data';
+import {pdfHeaderHtml} from '@/lib/branding';
+import {publicQuoteUrl} from '@/lib/config';
+import * as Clipboard from 'expo-clipboard';
+import {Feather} from '@expo/vector-icons';
+import {Button, Card, CardTitle, HeroCard, StatusBadge} from '@/components/ui';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import useThemedNavigation from '@/hooks/use-navigation-theme';
+
+const PAID_STATUSES = ['accepted', 'approved', 'deposit_paid', 'paid'];
+
+type EditLine = {
+  key: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  isLabor: boolean;
+  photo_url?: string;
+};
+
+function lineItemsToEdit(items: LineItem[]): EditLine[] {
+  return (items || []).map((li, i) => ({
+    key: li.id || `li-${i}`,
+    description: li.description || '',
+    quantity: String(li.quantity ?? 1),
+    unitPrice: String(li.unitPrice ?? 0),
+    isLabor: Boolean(li.isLabor),
+    photo_url: li.photo_url,
+  }));
+}
+
+function reasonLabel(reason: string): string {
+  switch (reason) {
+    case 'revise_after_decline':
+      return 'Revised after decline';
+    case 'revise':
+      return 'Price / scope edit';
+    case 'manual_edit':
+      return 'Manual edit';
+    default:
+      return reason.replace(/_/g, ' ');
+  }
+}
+
+function formatDateTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+export default function QuoteDetail() {
+  const {id} = useLocalSearchParams<{id: string}>();
+  const router = useRouter();
+  const {user} = useAuth();
+  const {profile} = useProfile();
+  const {updateQuote, fetchJobs, fetchQuotes} = useQuote();
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [linkedJob, setLinkedJob] = useState<Job | null>(null);
+  const [revisions, setRevisions] = useState<QuoteRevision[]>([]);
+  const [expandedRev, setExpandedRev] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [revising, setRevising] = useState(false);
+  const [editLines, setEditLines] = useState<EditLine[]>([]);
+  const [editNotes, setEditNotes] = useState('');
+  const [editJobName, setEditJobName] = useState('');
+  const insets = useSafeAreaInsets();
+  const {colors} = useThemedNavigation();
+
+  const loadLinkedJob = useCallback(async (quoteId: string) => {
+    const result = await jobsApi.getJobByQuoteId(quoteId);
+    if (result.ok) setLinkedJob(result.data);
+    else setLinkedJob(null);
+  }, []);
+
+  const loadRevisions = useCallback(async (quoteId: string) => {
+    const result = await revisionsApi.listRevisions(quoteId);
+    if (result.ok) setRevisions(result.data);
+    else setRevisions([]);
+  }, []);
+
+  const fetchQuote = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    const result = await quotesApi.getQuote(id);
+    if (!result.ok) {
+      Alert.alert('Error', result.error || 'Failed to load quote details');
+      setQuote(null);
+      setLinkedJob(null);
+      setRevisions([]);
+    } else {
+      setQuote(result.data);
+      await Promise.all([loadLinkedJob(result.data.id), loadRevisions(result.data.id)]);
+    }
+    setLoading(false);
+  }, [id, loadLinkedJob, loadRevisions]);
+
+  useEffect(() => {
+    fetchQuote();
+  }, [fetchQuote]);
+
+  const editTotal = useMemo(() => {
+    return editLines.reduce((sum, li) => {
+      const q = parseFloat(li.quantity) || 0;
+      const p = parseFloat(li.unitPrice) || 0;
+      return sum + q * p;
+    }, 0);
+  }, [editLines]);
+
+  const startRevise = () => {
+    if (!quote) return;
+    setEditLines(lineItemsToEdit(quote.quote_line_items || []));
+    setEditNotes(quote.notes || '');
+    setEditJobName(quote.job_name || '');
+    setRevising(true);
+  };
+
+  const saveRevision = async (thenSend: boolean) => {
+    if (!quote) return;
+    const cleaned = editLines
+      .map((li) => ({
+        description: li.description.trim(),
+        quantity: Math.max(0.01, parseFloat(li.quantity) || 0),
+        unit_price: Math.max(0, parseFloat(li.unitPrice) || 0),
+        is_labor: li.isLabor,
+        photo_url: li.photo_url ?? null,
+      }))
+      .filter((li) => li.description);
+    if (!editJobName.trim()) {
+      Alert.alert('Job name required');
+      return;
+    }
+    if (cleaned.length === 0) {
+      Alert.alert('Add at least one line item');
+      return;
+    }
+    const total = cleaned.reduce((s, li) => s + li.quantity * li.unit_price, 0);
+    const reason =
+      (quote.status || '').toLowerCase() === 'declined' ? 'revise_after_decline' : 'revise';
+    setBusy(true);
+    try {
+      const result = await quotesApi.replaceLineItems(quote.id, cleaned, total, {
+        reason,
+        newStatus: 'draft',
+        note: thenSend ? 'Saved and sent to client' : 'Saved as draft',
+      });
+      if (!result.ok) throw new Error(result.error);
+      await updateQuote(quote.id, {
+        job_name: editJobName.trim(),
+        notes: editNotes,
+        status: 'draft',
+        total_amount: total,
+      });
+      setQuote({...result.data, job_name: editJobName.trim(), notes: editNotes, status: 'draft'});
+      setRevising(false);
+      await loadRevisions(quote.id);
+      try {
+        await fetchQuotes();
+      } catch {}
+      if (thenSend) {
+        const publicLink = publicQuoteUrl(result.data.id);
+        setSending(true);
+        try {
+          await updateQuote(result.data.id, {status: 'sent'});
+          setQuote((prev) => (prev ? {...prev, status: 'sent'} : prev));
+          await Clipboard.setStringAsync(publicLink);
+          try {
+            await Share.share({
+              message: `Here's your updated FixBid quote: ${publicLink}`,
+              url: publicLink,
+              title: `Updated quote for ${result.data.client_name}`,
+            });
+          } catch {}
+          Alert.alert('Sent', 'Revised quote marked as Sent.');
+        } finally {
+          setSending(false);
+        }
+      } else {
+        Alert.alert('Saved', 'Quote updated as draft. Revision recorded.');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Could not save revision');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendToClient = async () => {
+    if (!quote) return;
+    const publicLink = publicQuoteUrl(quote.id);
+    setSending(true);
+    try {
+      await updateQuote(quote.id, {status: 'sent'});
+      setQuote((prev) => (prev ? {...prev, status: 'sent'} : prev));
+      await Clipboard.setStringAsync(publicLink);
+      try {
+        await Share.share({
+          message: `Here's your quote: ${publicLink}`,
+          url: publicLink,
+          title: `Quote for ${quote.client_name}`,
+        });
+      } catch {}
+      Alert.alert('Quote sent', `Status updated to Sent.\n\nLink is on the clipboard:\n${publicLink}`);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Could not update quote status');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const convertToJob = async () => {
+    if (!quote) return;
+    if (linkedJob) {
+      Alert.alert('Job already exists', 'Open the job for this quote?', [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Open job', onPress: () => router.push(`/job/${linkedJob.id}`)},
+      ]);
+      return;
+    }
+    if (!user?.id) {
+      Alert.alert('Not logged in');
+      return;
+    }
+    setBusy(true);
+    try {
+      const existing = await jobsApi.getJobByQuoteId(quote.id);
+      if (existing.ok && existing.data) {
+        setLinkedJob(existing.data);
+        Alert.alert('Job ready', 'A job was already created for this quote.', [
+          {text: 'OK'},
+          {text: 'Open job', onPress: () => router.push(`/job/${existing.data!.id}`)},
+        ]);
+        return;
+      }
+      const jobResult = await jobsApi.createJob({
+        handyman_id: user.id,
+        job_name: quote.job_name,
+        client_id: quote.client_id || null,
+        client_name: quote.client_name,
+        quote_id: quote.id,
+        total_amount: quote.total_amount,
+        labor_cost: 0,
+        material_cost: 0,
+        before_photos: quote.photos || [],
+        after_photos: [],
+        payments: [],
+        status: 'schedule',
+        notes: quote.notes || null,
+      });
+      if (!jobResult.ok) throw new Error(jobResult.error);
+      if (!PAID_STATUSES.includes((quote.status || '').toLowerCase())) {
+        await updateQuote(quote.id, {status: 'accepted'});
+        setQuote((prev) => (prev ? {...prev, status: 'accepted'} : prev));
+      }
+      setLinkedJob(jobResult.data);
+      try {
+        await fetchJobs();
+      } catch {}
+      Alert.alert('Job created', 'Quote converted to a job.', [
+        {text: 'Stay here'},
+        {text: 'Open job', onPress: () => router.push(`/job/${jobResult.data.id}`)},
+      ]);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to create job');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const regeneratePDF = async () => {
+    if (!quote) return;
+    const lineItems = quote.quote_line_items || [];
+    const header = pdfHeaderHtml(profile);
+    const htmlContent = `<html><body>${header}<h2>${quote.client_name}</h2><p>Total: $${Number(quote.total_amount).toFixed(2)}</p></body></html>`;
+    try {
+      const {uri} = await Print.printToFileAsync({html: htmlContent});
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri);
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to generate PDF');
+    }
+  };
+
+  if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background">
+        <ActivityIndicator size="large" color="#f97316" />
+      </View>
+    );
+  }
+
+  if (!quote) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background">
+        <Text className="text-foreground">Quote not found</Text>
+      </View>
+    );
+  }
+
+  const status = (quote.status || 'draft').toLowerCase();
+  const isPaid = PAID_STATUSES.includes(status);
+  const deposit = Math.round(Number(quote.total_amount) * 50) / 100;
+  const lineItems = quote.quote_line_items || [];
+
+  return (
+    <View className="flex-1 bg-background">
+      <View className="flex-row items-center gap-3 px-4 pb-3" style={{paddingTop: insets.top + 12}}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Feather name="arrow-left" size={22} color={colors.foreground || '#111'} />
+        </TouchableOpacity>
+        <Text className="flex-1 text-[17px] font-bold text-foreground" numberOfLines={1}>
+          {quote.job_name}
+        </Text>
+        <StatusBadge status={quote.status} />
+      </View>
+
+      <ScrollView contentContainerClassName="gap-3 px-4 pb-28" keyboardShouldPersistTaps="handled">
+        <HeroCard className="p-6">
+          <Text className="text-[11px] font-bold uppercase tracking-[1px] text-slate-400">QUOTE</Text>
+          <Text className="text-[42px] font-black tracking-[-1px] text-white">
+            ${Number(revising ? editTotal : quote.total_amount).toLocaleString()}
+          </Text>
+          <Text className="mt-1 text-[16px] text-slate-400">{quote.client_name}</Text>
+          {quote.client_phone ? (
+            <Text className="text-[13px] text-slate-400">{quote.client_phone}</Text>
+          ) : null}
+          <Text className="mt-1 text-[13px] text-slate-500">{formatDate(quote.created_at)}</Text>
+          <Text className="mt-3 text-[13px] text-slate-400">50% deposit: ${deposit.toFixed(2)}</Text>
+          {revisions.length > 0 ? (
+            <Text className="mt-2 text-[12px] text-slate-500">
+              {revisions.length} revision{revisions.length === 1 ? '' : 's'} recorded
+            </Text>
+          ) : null}
+        </HeroCard>
+
+        {revising ? (
+          <View className="gap-3">
+            <Card className="border border-amber-200 bg-amber-50">
+              <Text className="text-[14px] font-semibold text-amber-900">
+                Adjust pricing or scope, then save as draft or send again.
+              </Text>
+            </Card>
+            <View className="gap-1">
+              <Text className="text-xs font-bold uppercase text-muted-foreground">Job name</Text>
+              <TextInput
+                className="rounded-xl border border-zinc-300 bg-card px-3 py-2.5 text-[15px] text-foreground"
+                value={editJobName}
+                onChangeText={setEditJobName}
+              />
+            </View>
+            {editLines.map((li, idx) => (
+              <View key={li.key} className="gap-2 rounded-xl border border-zinc-300 bg-card p-3">
+                <TextInput
+                  className="rounded-lg border border-zinc-200 px-2 py-1.5 text-sm font-semibold text-foreground"
+                  value={li.description}
+                  onChangeText={(v) =>
+                    setEditLines((rows) => rows.map((r, i) => (i === idx ? {...r, description: v} : r)))
+                  }
+                  placeholder="Description"
+                />
+                <View className="flex-row items-center gap-2">
+                  <TextInput
+                    className="w-14 rounded-lg border border-zinc-200 px-2 py-1.5 text-center text-sm text-foreground"
+                    value={li.quantity}
+                    onChangeText={(v) =>
+                      setEditLines((rows) => rows.map((r, i) => (i === idx ? {...r, quantity: v} : r)))
+                    }
+                    keyboardType="decimal-pad"
+                  />
+                  <Text className="text-muted-foreground">×</Text>
+                  <TextInput
+                    className="flex-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-sm text-foreground"
+                    value={li.unitPrice}
+                    onChangeText={(v) =>
+                      setEditLines((rows) => rows.map((r, i) => (i === idx ? {...r, unitPrice: v} : r)))
+                    }
+                    keyboardType="decimal-pad"
+                  />
+                  <TouchableOpacity onPress={() => setEditLines((rows) => rows.filter((_, i) => i !== idx))}>
+                    <Feather name="trash-2" size={16} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+            <Button
+              title="Add line item"
+              variant="outline"
+              icon="plus"
+              size="sm"
+              onPress={() =>
+                setEditLines((rows) => [
+                  ...rows,
+                  {key: `new-${Date.now()}`, description: '', quantity: '1', unitPrice: '0', isLabor: false},
+                ])
+              }
+            />
+            <View className="gap-1">
+              <Text className="text-xs font-bold uppercase text-muted-foreground">Notes</Text>
+              <TextInput
+                className="min-h-[80px] rounded-xl border border-zinc-300 bg-card px-3 py-2.5 text-[14px] text-foreground"
+                style={{textAlignVertical: 'top'}}
+                multiline
+                value={editNotes}
+                onChangeText={setEditNotes}
+              />
+            </View>
+            <Card>
+              <View className="flex-row items-center justify-between">
+                <Text className="font-semibold text-muted-foreground">New total</Text>
+                <Text className="text-xl font-extrabold text-primary">${editTotal.toFixed(2)}</Text>
+              </View>
+            </Card>
+            <Button icon="send" loading={busy || sending} title="Save & send to client" onPress={() => saveRevision(true)} />
+            <Button variant="outline" loading={busy} title="Save as draft only" onPress={() => saveRevision(false)} />
+            <Button variant="ghost" title="Cancel" onPress={() => setRevising(false)} disabled={busy} />
+          </View>
+        ) : (
+          <>
+            <Card>
+              <CardTitle>Line Items</CardTitle>
+              {lineItems.map((li, i) => (
+                <View
+                  key={li.id || i}
+                  className="flex-row items-start justify-between border-b border-zinc-200 py-2.5"
+                >
+                  <View className="flex-1 gap-0.5">
+                    <Text className="text-[14px] font-semibold text-foreground">{li.description}</Text>
+                    <Text className="text-[12px] text-muted-foreground">
+                      {li.quantity} × ${Number(li.unitPrice).toFixed(2)}
+                    </Text>
+                  </View>
+                  <Text className="text-[15px] font-bold text-foreground">
+                    ${(li.quantity * li.unitPrice).toFixed(2)}
+                  </Text>
+                </View>
+              ))}
+              <View className="mt-1 flex-row items-center justify-between border-t border-zinc-200 pt-3">
+                <Text className="text-[14px] font-semibold text-muted-foreground">Total</Text>
+                <Text className="text-[22px] font-extrabold text-primary">
+                  ${Number(quote.total_amount).toFixed(2)}
+                </Text>
+              </View>
+            </Card>
+
+            {quote.notes ? (
+              <Card>
+                <CardTitle>Notes</CardTitle>
+                <Text className="text-[14px] leading-5 text-muted-foreground">{quote.notes}</Text>
+              </Card>
+            ) : null}
+
+            {(status === 'draft' || status === 'sent') && (
+              <Button
+                icon="send"
+                loading={sending}
+                title={status === 'sent' ? 'Resend to Client' : 'Send to Client'}
+                onPress={sendToClient}
+              />
+            )}
+
+            <Button variant="outline" icon="file-text" title="Share PDF" onPress={regeneratePDF} />
+
+            {status === 'sent' && (
+              <>
+                <Button
+                  variant="success"
+                  icon="briefcase"
+                  loading={busy}
+                  title="Accept & create job"
+                  onPress={() =>
+                    Alert.alert('Accept quote', 'Mark accepted and create a job?', [
+                      {text: 'Cancel', style: 'cancel'},
+                      {text: 'Create job', onPress: convertToJob},
+                    ])
+                  }
+                />
+                <Card className="border border-amber-200 bg-amber-50">
+                  <Text className="text-[14px] font-semibold text-amber-800">
+                    Waiting for client deposit — payment also creates a job automatically.
+                  </Text>
+                </Card>
+              </>
+            )}
+
+            {isPaid && (
+              <View className="gap-2">
+                <Card className="border border-green-200 bg-green-50">
+                  <Text className="text-[14px] font-semibold text-green-800">
+                    Quote accepted{linkedJob ? ' — job is ready' : ' — convert to a job when ready'}
+                  </Text>
+                </Card>
+                {linkedJob ? (
+                  <Button icon="briefcase" title="Open job" onPress={() => router.push(`/job/${linkedJob.id}`)} />
+                ) : (
+                  <Button icon="plus-circle" loading={busy} title="Turn into a job" onPress={convertToJob} />
+                )}
+              </View>
+            )}
+
+            {status === 'declined' && (
+              <View className="gap-2">
+                <Card className="border border-red-200 bg-red-50">
+                  <Text className="text-[14px] font-semibold text-red-800">
+                    Client declined this quote. Adjust the price or scope and send it again.
+                  </Text>
+                </Card>
+                <Button icon="edit-3" title="Revise & resend" onPress={startRevise} />
+              </View>
+            )}
+
+            <Card>
+              <CardTitle>Revision history</CardTitle>
+              {revisions.length === 0 ? (
+                <Text className="text-[13px] text-muted-foreground">
+                  No revisions yet. History appears when you revise pricing or scope.
+                </Text>
+              ) : (
+                revisions.map((rev) => {
+                  const open = expandedRev === rev.id;
+                  const delta =
+                    rev.previous_total != null && rev.new_total != null
+                      ? rev.new_total - rev.previous_total
+                      : null;
+                  return (
+                    <TouchableOpacity
+                      key={rev.id}
+                      className="mb-2 rounded-xl border border-zinc-200 p-3"
+                      activeOpacity={0.85}
+                      onPress={() => setExpandedRev(open ? null : rev.id)}
+                    >
+                      <View className="flex-row items-start justify-between gap-2">
+                        <View className="flex-1">
+                          <Text className="text-[14px] font-bold text-foreground">
+                            Rev #{rev.revision_number} · {reasonLabel(rev.reason)}
+                          </Text>
+                          <Text className="mt-0.5 text-[12px] text-muted-foreground">
+                            {formatDateTime(rev.created_at)}
+                          </Text>
+                        </View>
+                        <Feather name={open ? 'chevron-up' : 'chevron-down'} size={18} color="#94a3b8" />
+                      </View>
+                      <Text className="mt-2 text-[13px] text-foreground">
+                        {rev.previous_total != null ? `$${Number(rev.previous_total).toFixed(2)}` : '—'}
+                        {' → '}
+                        {rev.new_total != null ? `$${Number(rev.new_total).toFixed(2)}` : '—'}
+                        {delta != null
+                          ? ` (${delta > 0 ? '+' : ''}$${delta.toFixed(2)})`
+                          : ''}
+                      </Text>
+                      {open && (
+                        <View className="mt-3 border-t border-zinc-100 pt-3">
+                          {(rev.snapshot?.line_items || []).map((li, i) => (
+                            <Text key={i} className="mt-1 text-[12px] text-muted-foreground">
+                              {li.description} · {li.quantity} × ${Number(li.unit_price).toFixed(2)}
+                            </Text>
+                          ))}
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </Card>
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
