@@ -1,7 +1,7 @@
 import {supabase} from '@/lib/supabase';
 import {mapQuoteRow, quoteUpdatesToDb} from './mappers';
 import {recordRevision, snapshotFromQuote} from './revisions';
-import {err, ok, type Result} from './result';
+import {err, ok} from './result';
 import type {CreateQuoteInput, Quote} from './types';
 
 const QUOTE_SELECT = `
@@ -9,6 +9,7 @@ const QUOTE_SELECT = `
   client_id,
   client_name,
   client_phone,
+  template_id,
   job_name,
   notes,
   total_amount,
@@ -21,6 +22,9 @@ const QUOTE_SELECT = `
   warranty_text,
   deposit_percent,
   valid_until,
+  acceptance_mode,
+  accepted_at,
+  accepted_by_name,
   quote_line_items (
     id,
     description,
@@ -31,211 +35,161 @@ const QUOTE_SELECT = `
   )
 `;
 
-function addDaysIso(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-export async function listQuotes(handymanId: string): Promise<Result<Quote[]>> {
+export async function listQuotes(handymanId: string): Promise<import('./types').Result<Quote[]>> {
   try {
     const {data, error} = await supabase
       .from('quotes')
       .select(QUOTE_SELECT)
       .eq('handyman_id', handymanId)
       .order('created_at', {ascending: false});
-
-    if (error) return err(error);
+    if (error) return err(error.message);
     return ok((data || []).map(mapQuoteRow));
-  } catch (e) {
-    return err(e, 'Failed to load quotes');
+  } catch (e: any) {
+    return err(e?.message || 'Failed to list quotes');
   }
 }
 
-export async function getQuote(id: string): Promise<Result<Quote>> {
+export async function getQuote(id: string): Promise<import('./types').Result<Quote>> {
   try {
-    const {data, error} = await supabase
-      .from('quotes')
-      .select(QUOTE_SELECT)
-      .eq('id', id)
-      .single();
-
-    if (error) return err(error);
+    const {data, error} = await supabase.from('quotes').select(QUOTE_SELECT).eq('id', id).maybeSingle();
+    if (error) return err(error.message);
+    if (!data) return err('Quote not found');
     return ok(mapQuoteRow(data));
-  } catch (e) {
-    return err(e, 'Failed to load quote');
+  } catch (e: any) {
+    return err(e?.message || 'Failed to load quote');
   }
 }
 
-export async function createQuote(input: CreateQuoteInput): Promise<Result<Quote>> {
+export async function createQuote(input: CreateQuoteInput): Promise<import('./types').Result<Quote>> {
   try {
     const status = input.status ?? 'draft';
     const deposit =
       input.deposit_percent != null && input.deposit_percent > 0
         ? input.deposit_percent
-        : 50;
-
+        : null;
     let validUntil = input.valid_until ?? null;
     if (status === 'sent' && !validUntil) {
-      validUntil = addDaysIso(30);
+      const d = new Date();
+      d.setDate(d.getDate() + 30);
+      validUntil = d.toISOString().slice(0, 10);
     }
-
-    const {data: quote, error: quoteError} = await supabase
+    const {data: quote, error} = await supabase
       .from('quotes')
       .insert({
         handyman_id: input.handyman_id,
+        client_id: input.client_id ?? null,
         client_name: input.client_name,
         client_phone: input.client_phone ?? null,
-        client_id: input.client_id ?? null,
+        template_id: input.template_id ?? null,
         job_name: input.job_name,
         notes: input.notes ?? null,
-        photos: input.photos ?? [],
         total_amount: input.total_amount,
         status,
+        photos: input.photos ?? [],
         inclusions: input.inclusions ?? null,
         exclusions: input.exclusions ?? null,
         warranty_text: input.warranty_text ?? null,
         deposit_percent: deposit,
+        acceptance_mode: input.acceptance_mode === 'accept' ? 'accept' : 'deposit',
         valid_until: validUntil,
       })
-      .select()
+      .select('id')
       .single();
-
-    if (quoteError) return err(quoteError);
-
-    if (input.line_items.length > 0) {
+    if (error) return err(error.message);
+    if (input.line_items?.length) {
       const rows = input.line_items.map((li) => ({
         quote_id: quote.id,
         description: li.description,
         quantity: li.quantity,
-        unit_price: li.unit_price,
-        is_labor: li.is_labor ?? false,
-        photo_url: li.photo_url ?? null,
+        unit_price: li.unitPrice,
+        is_labor: li.isLabor,
+        photo_url: li.photo_url ?? li.photoUri ?? null,
       }));
-
-      const {error: lineError} = await supabase.from('quote_line_items').insert(rows);
-      if (lineError) return err(lineError);
+      const {error: liErr} = await supabase.from('quote_line_items').insert(rows);
+      if (liErr) return err(liErr.message);
     }
-
     return getQuote(quote.id);
-  } catch (e) {
-    return err(e, 'Failed to create quote');
+  } catch (e: any) {
+    return err(e?.message || 'Failed to create quote');
   }
 }
 
 export async function updateQuote(
   id: string,
   updates: Partial<Quote>,
-): Promise<Result<void>> {
+): Promise<import('./types').Result<Quote>> {
   try {
-    const dbUpdates = quoteUpdatesToDb(updates);
-
-    // When marking sent, set valid_until if missing
+    const patch = quoteUpdatesToDb(updates);
     if (updates.status === 'sent' && updates.valid_until === undefined) {
-      const {data: existing} = await supabase
-        .from('quotes')
-        .select('valid_until')
-        .eq('id', id)
-        .maybeSingle();
-      if (!existing?.valid_until) {
-        dbUpdates.valid_until = addDaysIso(30);
+      if (patch.valid_until === undefined) {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        patch.valid_until = d.toISOString().slice(0, 10);
       }
     }
-
-    if (Object.keys(dbUpdates).length === 0) return ok(undefined);
-
-    const {error} = await supabase.from('quotes').update(dbUpdates).eq('id', id);
-    if (error) return err(error);
-    return ok(undefined);
-  } catch (e) {
-    return err(e, 'Failed to update quote');
+    if (Object.keys(patch).length) {
+      const {error} = await supabase.from('quotes').update(patch).eq('id', id);
+      if (error) return err(error.message);
+    }
+    return getQuote(id);
+  } catch (e: any) {
+    return err(e?.message || 'Failed to update quote');
   }
 }
 
-/**
- * Replace all line items and update total (for revise-and-resend).
- * Records an immutable revision snapshot of the *previous* state first.
- */
 export async function replaceLineItems(
   quoteId: string,
-  lineItems: Array<{
-    description: string;
-    quantity: number;
-    unit_price: number;
-    is_labor?: boolean;
-    photo_url?: string | null;
-  }>,
+  items: import('./types').LineItem[],
   totalAmount: number,
-  opts?: {reason?: string; note?: string | null; newStatus?: string},
-): Promise<Result<Quote>> {
+  newStatus: import('./types').QuoteStatus,
+  note?: string,
+): Promise<import('./types').Result<Quote>> {
   try {
     const before = await getQuote(quoteId);
     if (!before.ok) return before;
-
     const prev = before.data;
-    const newStatus = opts?.newStatus ?? 'draft';
-    const reason = opts?.reason ?? 'revise';
-
-    if (prev.handyman_id) {
-      const rev = await recordRevision({
-        quoteId,
-        handymanId: prev.handyman_id,
-        reason,
-        previousStatus: prev.status,
-        newStatus,
-        previousTotal: prev.total_amount,
-        newTotal: totalAmount,
-        snapshot: snapshotFromQuote(prev),
-        note: opts?.note ?? null,
-      });
-      if (!rev.ok) {
-        console.warn('revision record failed', rev.error);
-      }
-    }
-
-    const {error: delErr} = await supabase
-      .from('quote_line_items')
-      .delete()
-      .eq('quote_id', quoteId);
-    if (delErr) return err(delErr);
-
-    if (lineItems.length > 0) {
-      const rows = lineItems.map((li) => ({
+    await recordRevision({
+      quoteId,
+      previousStatus: prev.status,
+      newStatus,
+      previousTotal: prev.total_amount,
+      newTotal: totalAmount,
+      snapshot: snapshotFromQuote(prev),
+      note,
+    });
+    await supabase.from('quote_line_items').delete().eq('quote_id', quoteId);
+    if (items.length) {
+      const rows = items.map((li) => ({
         quote_id: quoteId,
         description: li.description,
         quantity: li.quantity,
-        unit_price: li.unit_price,
-        is_labor: li.is_labor ?? false,
-        photo_url: li.photo_url ?? null,
+        unit_price: li.unitPrice,
+        is_labor: li.isLabor,
+        photo_url: li.photo_url ?? li.photoUri ?? null,
       }));
-      const {error: insErr} = await supabase.from('quote_line_items').insert(rows);
-      if (insErr) return err(insErr);
+      const {error: liErr} = await supabase.from('quote_line_items').insert(rows);
+      if (liErr) return err(liErr.message);
     }
-
-    const patch: Record<string, unknown> = {
-      total_amount: totalAmount,
-      status: newStatus,
-    };
-    if (newStatus === 'sent') {
-      patch.valid_until = prev.valid_until || addDaysIso(30);
-    }
-
-    const {error: upErr} = await supabase.from('quotes').update(patch).eq('id', quoteId);
-    if (upErr) return err(upErr);
-
+    const {error} = await supabase
+      .from('quotes')
+      .update({
+        total_amount: totalAmount,
+        status: newStatus,
+      })
+      .eq('id', quoteId);
+    if (error) return err(error.message);
     return getQuote(quoteId);
-  } catch (e) {
-    return err(e, 'Failed to update line items');
+  } catch (e: any) {
+    return err(e?.message || 'Failed to replace line items');
   }
 }
 
-export async function deleteQuote(id: string): Promise<Result<void>> {
+export async function deleteQuote(id: string): Promise<import('./types').Result<void>> {
   try {
-    await supabase.from('quote_line_items').delete().eq('quote_id', id);
     const {error} = await supabase.from('quotes').delete().eq('id', id);
-    if (error) return err(error);
+    if (error) return err(error.message);
     return ok(undefined);
-  } catch (e) {
-    return err(e, 'Failed to delete quote');
+  } catch (e: any) {
+    return err(e?.message || 'Failed to delete quote');
   }
 }
