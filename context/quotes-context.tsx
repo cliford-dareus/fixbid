@@ -6,12 +6,11 @@ import React, {
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from 'react';
 import {Alert} from 'react-native';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '@/context/auth-context';
-import {quotesApi, type DraftLineItem, type Quote} from '@/lib/data';
+import {quotesApi, type Quote} from '@/lib/data';
 import {notifyLocal} from '@/lib/notification';
 import {fromResult, queryKeys} from '@/lib/query-client';
 import {
@@ -23,21 +22,9 @@ import {
 type QuotesContextType = {
   quotes: Quote[];
   loading: boolean;
-
   updateQuote: (id: string, updates: Partial<Quote>) => Promise<void>;
   deleteQuote: (id: string) => Promise<void>;
   fetchQuotes: () => Promise<void>;
-
-  /** Draft builder (UI-only; move to screen later). */
-  newQuote: Quote | null;
-  addNewQuote: (q: Partial<Quote>) => Quote;
-  updateNewQuote: (field: string, value: string | number) => void;
-  clearNewQuote: () => void;
-  lineItems: DraftLineItem[];
-  updateLineItem: (idx: number, field: keyof DraftLineItem, value: string | number) => void;
-  removeLineItem: (idx: number) => void;
-  addLineItem: () => void;
-  setLineItems: React.Dispatch<React.SetStateAction<DraftLineItem[]>>;
 };
 
 const QuotesContext = createContext<QuotesContextType | undefined>(undefined);
@@ -46,9 +33,6 @@ export function QuotesProvider({children}: {children: ReactNode}) {
   const {user} = useAuth();
   const userId = user?.id;
   const qc = useQueryClient();
-
-  const [newQuote, setNewQuote] = useState<Quote | null>(null);
-  const [lineItems, setLineItems] = useState<DraftLineItem[]>([]);
   const notifiedRef = useRef<Set<string>>(new Set());
 
   const quotesQuery = useQuery({
@@ -72,7 +56,6 @@ export function QuotesProvider({children}: {children: ReactNode}) {
     await qc.invalidateQueries({queryKey: queryKeys.quotes(userId)});
   }, [qc, userId]);
 
-  // Realtime → quotes cache; paid statuses also invalidate jobs
   useEffect(() => {
     if (!userId) return;
 
@@ -178,53 +161,6 @@ export function QuotesProvider({children}: {children: ReactNode}) {
     [deleteQuoteMutation],
   );
 
-  const addNewQuote = useCallback((q: Partial<Quote>): Quote => {
-    const draft: Quote = {
-      id: '',
-      client_id: q.client_id ?? null,
-      client_name: q.client_name ?? '',
-      job_name: q.job_name ?? '',
-      quote_line_items: q.quote_line_items ?? [],
-      notes: q.notes ?? '',
-      total_amount: q.total_amount ?? 0,
-      status: q.status ?? 'draft',
-      created_at: new Date().toISOString(),
-      photos: q.photos ?? [],
-      ...q,
-    };
-    setNewQuote(draft);
-    return draft;
-  }, []);
-
-  const updateNewQuote = useCallback((field: string, value: string | number) => {
-    setNewQuote((prev) => (prev ? {...prev, [field]: value} : prev));
-  }, []);
-
-  const clearNewQuote = useCallback(() => {
-    setLineItems([]);
-    setNewQuote(null);
-  }, []);
-
-  const updateLineItem = useCallback(
-    (idx: number, field: keyof DraftLineItem, value: string | number) => {
-      setLineItems((prev) =>
-        prev.map((li, i) => (i === idx ? {...li, [field]: value} : li)),
-      );
-    },
-    [],
-  );
-
-  const removeLineItem = useCallback((idx: number) => {
-    setLineItems((prev) => prev.filter((_, i) => i !== idx));
-  }, []);
-
-  const addLineItem = useCallback(() => {
-    setLineItems((prev) => [
-      ...prev,
-      {description: '', quantity: 1, unitPrice: 0, isLabor: true},
-    ]);
-  }, []);
-
   const value = useMemo(
     () => ({
       quotes,
@@ -232,32 +168,8 @@ export function QuotesProvider({children}: {children: ReactNode}) {
       updateQuote,
       deleteQuote,
       fetchQuotes,
-      newQuote,
-      addNewQuote,
-      updateNewQuote,
-      clearNewQuote,
-      lineItems,
-      updateLineItem,
-      removeLineItem,
-      addLineItem,
-      setLineItems,
     }),
-    [
-      quotes,
-      userId,
-      quotesQuery.isLoading,
-      updateQuote,
-      deleteQuote,
-      fetchQuotes,
-      newQuote,
-      addNewQuote,
-      updateNewQuote,
-      clearNewQuote,
-      lineItems,
-      updateLineItem,
-      removeLineItem,
-      addLineItem,
-    ],
+    [quotes, userId, quotesQuery.isLoading, updateQuote, deleteQuote, fetchQuotes],
   );
 
   return (
