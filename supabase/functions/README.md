@@ -10,6 +10,7 @@ Payment source of truth is **`stripe-webhook`**. The browser success page only c
 | `create-checkout-session` | Stripe Checkout; **server computes 50% deposit** |
 | `stripe-webhook` | Verify signature → mark quote `accepted` → insert `payments` → create `jobs` → Expo push |
 | `update-quote-on-success` | Success page helper (retrieve session; best-effort status) |
+| `estimate-job-cost` | **AI cost estimate** (xAI Grok) from description + photos; requires user JWT |
 
 Shared helpers live in `_shared/` (`cors`, `supabase`, `expo-push`).
 
@@ -21,6 +22,7 @@ Shared helpers live in `_shared/` (`cors`, `supabase`, `expo-push`).
 4. **Webhook** — verify `stripe-signature` with `STRIPE_WEBHOOK_SECRET`; idempotent on `stripe_payment_intent_id`.
 5. **Storage** — uploads only under `{auth.uid()}/...` in `quote-photos`; public read for client-facing photos.
 6. **Secrets** — only in Supabase secrets / CI; never in `EXPO_PUBLIC_*`.
+7. **AI estimates** — `estimate-job-cost` requires a valid user JWT; keep `XAI_API_KEY` server-side only.
 
 ## Environment secrets
 
@@ -30,26 +32,30 @@ supabase secrets set \
   STRIPE_WEBHOOK_SECRET=whsec_... \
   PUBLIC_QUOTE_URL=https://fixbid-ten.vercel.app \
   STRIPE_CONNECT=false \
-  PLATFORM_FEE_PERCENT=0
+  PLATFORM_FEE_PERCENT=0 \
+  XAI_API_KEY=xai-...
 ```
-
-`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically in hosted functions.
 
 Optional:
 
+- `XAI_MODEL` — default `grok-4.1-fast` (vision-capable preferred for photo estimates)
 - `STRIPE_CONNECT=true` — destination charges to `profiles.stripe_account_id`
 - `PLATFORM_FEE_PERCENT` — application fee percent when Connect is on
+
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically in hosted functions.
 
 ## Deploy
 
 ```bash
-# From repo root (requires Supabase CLI linked to the project)
-supabase db push   # RLS, payments, realtime, expo_push_token, branding, storage
+supabase db push
 
 supabase functions deploy public-quote --no-verify-jwt
 supabase functions deploy create-checkout-session --no-verify-jwt
 supabase functions deploy update-quote-on-success --no-verify-jwt
 supabase functions deploy stripe-webhook --no-verify-jwt
+
+# JWT verified (handyman session required)
+supabase functions deploy estimate-job-cost
 ```
 
 ## Stripe Dashboard
@@ -61,33 +67,19 @@ supabase functions deploy stripe-webhook --no-verify-jwt
    - `payment_intent.succeeded` (in-app PaymentSheet)
 3. Copy signing secret → `STRIPE_WEBHOOK_SECRET`
 
-## Flow
+## AI estimate flow
 
 ```
-Client Pay Deposit
-  → create-checkout-session (deposit = 50% of quotes.total_amount)
-  → Stripe Checkout
-  → checkout.session.completed
-  → stripe-webhook:
-       - idempotent payments insert
-       - quotes.status = accepted
-       - jobs row if missing
-       - Expo push to handyman
-  → success.html?session_id=...
-  → update-quote-on-success (display + backup status)
-```
-
-## Local test
-
-```bash
-stripe listen --forward-to localhost:54321/functions/v1/stripe-webhook
-supabase functions serve stripe-webhook --env-file ./supabase/.env.local
+App (photo + description)
+  → upload photos to storage (public URLs)
+  → POST estimate-job-cost (user JWT)
+  → xAI chat/completions (JSON line items)
+  → Apply to draft quote builder
 ```
 
 ## Notes
 
 - Never trust client `deposit_amount` for the charge amount (checkout recomputes).
 - Webhook must return 2xx only after durable DB updates (or Stripe will retry).
-- Ensure `profiles.stripe_account_id` exists if using Connect.
 - Align quote statuses: `draft` → `sent` → `accepted` | `declined`.
 - Public quote links are capability URLs (UUID); treat them like secrets when sharing.
