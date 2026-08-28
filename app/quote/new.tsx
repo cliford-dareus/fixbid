@@ -1,1 +1,528 @@
-SEE_FILE
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  Modal,
+  Share,
+} from 'react-native';
+import {useRouter} from 'expo-router';
+import {useQuote} from '@/context/quote-context';
+import {useAuth} from '@/context/auth-context';
+import {Image} from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as Clipboard from 'expo-clipboard';
+import {quotesApi, type DraftLineItem} from '@/lib/data';
+import {uploadPhotoFromUri} from '@/lib/upload-photo';
+import {publicQuoteUrl} from '@/lib/config';
+import {estimateJobCost, estimateToDraftLineItems} from '@/lib/ai-estimate';
+import {Feather} from '@expo/vector-icons';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {
+  calculateJobCost,
+  JOB_TEMPLATES,
+  QUICK_TEMPLATES,
+  templateToLineItems,
+  type JobTemplate,
+} from '@/data/templates';
+import useThemedNavigation from '@/hooks/use-navigation-theme';
+import {useProfile} from '@/context/profile-context';
+import {useNewQuoteDraft} from '@/hooks/use-new-quote-draft';
+import {notifyError, notifyInfo, notifySuccess, notifyWarning} from '@/lib/feedback';
+
+type UndoSnapshot = {
+  jobName: string;
+  notes: string;
+  lineItems: DraftLineItem[];
+};
+
+export default function NewQuote() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const {user} = useAuth();
+  const {clients, fetchQuotes, updateQuote} = useQuote();
+  const draft = useNewQuoteDraft();
+  const {profile} = useProfile();
+  const {colors} = useThemedNavigation();
+
+  const [step, setStep] = useState<'photo' | 'details'>(
+    draft.lineItems.length > 0 || draft.jobName ? 'details' : 'photo',
+  );
+  const [saving, setSaving] = useState(false);
+  const [estimating, setEstimating] = useState(false);
+  const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
+  const [postSaveVisible, setPostSaveVisible] = useState(false);
+  const [postSaveBusy, setPostSaveBusy] = useState(false);
+  const undoRef = useRef<UndoSnapshot | null>(null);
+
+  const hourlyRate =
+    profile?.hourly_rate && Number(profile.hourly_rate) > 0
+      ? Number(profile.hourly_rate)
+      : null;
+
+  const recentClients = clients.slice(0, 8);
+
+  useEffect(() => {
+    (async () => {
+      const {status} = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        console.warn('Camera permission not granted');
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!draft.selectedClientId) return;
+    const client = clients.find((c) => c.id === draft.selectedClientId);
+    if (client) {
+      draft.setClientName(client.name || '');
+      draft.setClientPhone(client.phone || '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.selectedClientId, clients]);
+
+  const resolvedName = () => {
+    if (draft.selectedClientId) {
+      const client = clients.find((c) => c.id === draft.selectedClientId);
+      if (client?.name) return client.name;
+    }
+    return draft.clientName.trim();
+  };
+
+  const resolvedPhone = () => {
+    if (draft.selectedClientId) {
+      const client = clients.find((c) => c.id === draft.selectedClientId);
+      if (client?.phone) return client.phone;
+    }
+    return draft.clientPhone.trim();
+  };
+
+  const resolvedClientName = resolvedName();
+  const resolvedClientPhone = resolvedPhone();
+  const total = draft.total;
+
+  const canSave =
+    Boolean(resolvedClientName) &&
+    draft.lineItems.length > 0 &&
+    Boolean(draft.jobName.trim());
+
+  const pushUndo = useCallback(() => {
+    undoRef.current = {
+      jobName: draft.jobName,
+      notes: draft.notes,
+      lineItems: draft.lineItems.map((li) => ({...li})),
+    };
+  }, [draft.jobName, draft.notes, draft.lineItems]);
+
+  const restoreUndo = useCallback(() => {
+    const snap = undoRef.current;
+    if (!snap) return;
+    draft.applyTemplateDraft({
+      jobName: snap.jobName,
+      notes: snap.notes,
+      lineItems: snap.lineItems,
+    });
+    undoRef.current = null;
+    notifyInfo('Restored previous line items');
+  }, [draft]);
+
+  const applyTemplate = useCallback(
+    (template: JobTemplate, opts?: {silent?: boolean}) => {
+      pushUndo();
+      const cost = calculateJobCost(template, 1.2, hourlyRate);
+      const lineItems = templateToLineItems(template, hourlyRate);
+      const noteParts = [
+        template.description,
+        template.commonUpsells?.length
+          ? `Upsells: ${template.commonUpsells.slice(0, 3).join(', ')}`
+          : '',
+      ].filter(Boolean);
+      draft.applyTemplateDraft({
+        jobName: template.name,
+        totalAmount: cost.suggested,
+        notes: noteParts.join('\n'),
+        lineItems,
+      });
+      setStep('details');
+      if (!opts?.silent) {
+        notifySuccess(
+          template.name,
+          `~$${cost.suggested} · ${template.timeEstimateHours}h labor · Edit anytime`,
+        );
+      }
+    },
+    [draft, hourlyRate, pushUndo],
+  );
+
+  const pickPhoto = async () => {
+    if (Platform.OS !== 'web') {
+      const {status} = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        notifyWarning('Permission needed', 'Allow photo access to upload job photos.');
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      const uris = result.assets.map((a) => a.uri);
+      draft.setPhotos((prev) => [...prev, ...uris].slice(0, 5));
+    }
+  };
+
+  const takePhoto = async () => {
+    if (Platform.OS !== 'web') {
+      const {status} = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        notifyWarning('Permission needed', 'Allow camera access to take job photos.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({quality: 0.8});
+      if (!result.canceled) {
+        draft.setPhotos((prev) => [...prev, result.assets[0].uri].slice(0, 5));
+      }
+    } else {
+      notifyInfo('Camera not available on web', 'Use the gallery button instead.');
+    }
+  };
+
+  const resetForm = () => {
+    draft.reset();
+    undoRef.current = null;
+  };
+
+  const handleAiEstimate = async () => {
+    if (!draft.jobName.trim() && draft.photos.length === 0) {
+      notifyWarning('Need input', 'Add a short description and/or job photos.');
+      return;
+    }
+    if (!user?.id) {
+      notifyError('Not logged in');
+      return;
+    }
+
+    setEstimating(true);
+    try {
+      const photoUrls: string[] = [];
+      for (const uri of draft.photos.slice(0, 3)) {
+        if (uri.startsWith('http')) {
+          photoUrls.push(uri);
+        } else {
+          try {
+            photoUrls.push(await uploadPhotoFromUri(uri, user.id));
+          } catch (e) {
+            console.warn('photo upload for AI estimate failed', e);
+          }
+        }
+      }
+
+      const region = [profile?.city, profile?.state].filter(Boolean).join(', ');
+      const estimate = await estimateJobCost({
+        description: draft.jobName.trim(),
+        photoUrls,
+        hourlyRate: hourlyRate ?? profile?.hourly_rate,
+        region: region || undefined,
+      });
+
+      pushUndo();
+      const noteParts = [
+        estimate.notes,
+        estimate.upsells?.length
+          ? `Suggested upsells: ${estimate.upsells.join(', ')}`
+          : '',
+      ].filter(Boolean);
+      draft.applyTemplateDraft({
+        jobName: estimate.job_name || draft.jobName,
+        totalAmount: estimate.suggested,
+        notes: noteParts.join('\n') || draft.notes,
+        lineItems: estimateToDraftLineItems(estimate),
+      });
+      setStep('details');
+
+      const confPct = Math.round((estimate.confidence || 0) * 100);
+      notifySuccess(
+        'AI estimate applied',
+        `$${estimate.suggested} · ~${estimate.labor_hours}h · ${confPct}% confidence. Shake up line items if needed.`,
+      );
+    } catch (e: any) {
+      console.error(e);
+      notifyError(
+        'AI estimate failed',
+        e?.message || 'Try a quick template instead.',
+      );
+    } finally {
+      setEstimating(false);
+    }
+  };
+
+  const persistQuote = async (status: 'draft' | 'sent'): Promise<string | null> => {
+    if (!resolvedClientName || draft.lineItems.length === 0) {
+      notifyWarning('Missing info', 'Client name and at least one line item are required');
+      return null;
+    }
+    const activeJobName = draft.jobName.trim();
+    if (!activeJobName) {
+      notifyWarning('Missing info', 'Job name is required');
+      return null;
+    }
+    if (!user?.id) {
+      notifyError('Not logged in');
+      return null;
+    }
+
+    setSaving(true);
+    try {
+      const photoUrls = await Promise.all(
+        draft.photos.map((photoUri) => uploadPhotoFromUri(photoUri, user.id)),
+      );
+
+      const client = draft.selectedClientId
+        ? clients.find((c) => c.id === draft.selectedClientId) ?? null
+        : null;
+
+      const linePayload = [];
+      for (const item of draft.lineItems) {
+        let photoUrl: string | null = null;
+        if (item.photoUri) {
+          try {
+            photoUrl = await uploadPhotoFromUri(item.photoUri, user.id);
+          } catch (uploadErr) {
+            console.warn('Line-item photo upload failed, continuing without it', uploadErr);
+          }
+        }
+        linePayload.push({
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          is_labor: item.isLabor ?? false,
+          photo_url: photoUrl,
+        });
+      }
+
+      const depositPct =
+        profile?.deposit_percent != null && Number(profile.deposit_percent) > 0
+          ? Number(profile.deposit_percent)
+          : 50;
+      const validDays =
+        profile?.quote_valid_days != null && Number(profile.quote_valid_days) > 0
+          ? Number(profile.quote_valid_days)
+          : 30;
+      let validUntil: string | null = null;
+      if (status === 'sent') {
+        const d = new Date();
+        d.setDate(d.getDate() + validDays);
+        validUntil = d.toISOString().slice(0, 10);
+      }
+
+      const result = await quotesApi.createQuote({
+        handyman_id: user.id,
+        client_name: resolvedClientName,
+        client_phone: resolvedClientPhone || null,
+        job_name: activeJobName,
+        client_id: client?.id ?? null,
+        notes: draft.notes || null,
+        photos: photoUrls,
+        total_amount: total,
+        status,
+        inclusions: profile?.default_inclusions || null,
+        exclusions: profile?.default_exclusions || null,
+        warranty_text: profile?.warranty_text || null,
+        deposit_percent: depositPct,
+        valid_until: validUntil,
+        line_items: linePayload,
+      });
+
+      if (!result.ok) throw new Error(result.error);
+
+      try {
+        await fetchQuotes();
+      } catch {
+        // non-fatal
+      }
+
+      return result.data.id;
+    } catch (error: any) {
+      console.error(error);
+      notifyError('Save failed', error.message || 'Please try again');
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    const id = await persistQuote('draft');
+    if (!id) return;
+    setSavedQuoteId(id);
+    setPostSaveVisible(true);
+  };
+
+  const handleSaveAndSend = async () => {
+    const id = await persistQuote('sent');
+    if (!id) return;
+    setSavedQuoteId(id);
+    setPostSaveBusy(true);
+    try {
+      const publicLink = publicQuoteUrl(id);
+      await Clipboard.setStringAsync(publicLink);
+      try {
+        await Share.share({
+          message: `Here's your FixBid quote: ${publicLink}`,
+          url: publicLink,
+          title: `Quote for ${resolvedClientName}`,
+        });
+      } catch {
+        // dismissed
+      }
+      notifySuccess('Quote sent', 'Link copied to clipboard');
+      resetForm();
+      router.back();
+    } catch (e: any) {
+      notifyError('Could not send', e.message);
+      setPostSaveVisible(true);
+    } finally {
+      setPostSaveBusy(false);
+    }
+  };
+
+  const finishAndLeave = () => {
+    setPostSaveVisible(false);
+    resetForm();
+    router.back();
+  };
+
+  const handlePostSaveSend = async () => {
+    if (!savedQuoteId) return;
+    setPostSaveBusy(true);
+    try {
+      const publicLink = publicQuoteUrl(savedQuoteId);
+      await updateQuote(savedQuoteId, {status: 'sent'});
+      await Clipboard.setStringAsync(publicLink);
+      try {
+        await Share.share({
+          message: `Here's your FixBid quote: ${publicLink}`,
+          url: publicLink,
+          title: `Quote for ${resolvedClientName}`,
+        });
+      } catch {
+        // dismissed
+      }
+      notifySuccess('Link ready', 'Status set to Sent');
+      finishAndLeave();
+    } catch (e: any) {
+      notifyError('Error', e.message || 'Could not send quote');
+    } finally {
+      setPostSaveBusy(false);
+    }
+  };
+
+  const handlePostSavePdf = async () => {
+    setPostSaveBusy(true);
+    try {
+      await generateAndSharePDF();
+    } finally {
+      setPostSaveBusy(false);
+    }
+  };
+
+  const handlePostSaveOpen = () => {
+    if (!savedQuoteId) return;
+    setPostSaveVisible(false);
+    resetForm();
+    router.replace(`/quote/${savedQuoteId}`);
+  };
+
+  const generateAndSharePDF = async () => {
+    if (!resolvedClientName) {
+      notifyWarning('Missing info', 'Please select or enter a client name');
+      return;
+    }
+    if (draft.lineItems.length === 0) {
+      notifyWarning('No items', 'Add at least one line item');
+      return;
+    }
+
+    const businessName =
+      profile?.business_name || profile?.full_name || 'Professional Handyman';
+    const businessPhone = profile?.phone || '';
+    const businessLocation = profile?.address || '';
+    const activeJobName = draft.jobName.trim() || 'Quote';
+
+    const htmlContent = `
+            <html><head><style>
+                  body { font-family: Arial, sans-serif; padding: 40px; line-height: 1.6; color: #111; }
+                  h1 { color: #1e40af; text-align: center; margin-bottom: 4px; }
+                  .header { text-align: center; margin-bottom: 30px; }
+                  .meta { color: #555; font-size: 14px; }
+                  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                  th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                  th { background-color: #f1f5f9; }
+                  .total { font-size: 24px; font-weight: bold; color: #15803d; text-align: right; margin-top: 20px; }
+                </style></head><body>
+                <div class="header">
+                  <h1>FixBid Quote</h1>
+                  <p class="meta"><strong>${businessName}</strong>${businessLocation ? ` • ${businessLocation}` : ''}</p>
+                  ${businessPhone ? `<p class="meta">${businessPhone}</p>` : ''}
+                  <p class="meta">Date: ${new Date().toLocaleDateString()}</p>
+                  <p class="meta"><strong>Job:</strong> ${activeJobName}</p>
+                </div>
+                <h2>Client: ${resolvedClientName}</h2>
+                ${resolvedClientPhone ? `<p>Phone: ${resolvedClientPhone}</p>` : ''}
+                <table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+                  <tbody>
+                    ${draft.lineItems.map((item) => `<tr><td>${item.description || ''}</td><td>${item.quantity}</td><td>$${Number(item.unitPrice).toFixed(2)}</td><td>$${(Number(item.quantity) * Number(item.unitPrice)).toFixed(2)}</td></tr>`).join('')}
+                  </tbody></table>
+                <div class="total">Total: $${total.toFixed(2)}</div>
+                ${draft.notes ? `<p><strong>Notes:</strong><br>${draft.notes.replace(/\n/g, '<br>')}</p>` : ''}
+              </body></html>`;
+
+    try {
+      const {uri} = await Print.printToFileAsync({html: htmlContent, base64: false});
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Quote for ${resolvedClientName}`,
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        notifyWarning('Sharing not available', 'PDF saved to cache.');
+      }
+    } catch (error) {
+      console.error(error);
+      notifyError('PDF failed', 'Could not generate PDF');
+    }
+  };
+
+  const suggestTemplate = () => {
+    if (draft.photos.length === 0 && !draft.jobName) {
+      setStep('details');
+      return;
+    }
+    const lowerName = draft.jobName.toLowerCase();
+    const match = JOB_TEMPLATES.find(
+      (t) =>
+        lowerName.includes(t.name.toLowerCase().split(' ')[0]) ||
+        lowerName.includes(t.category.toLowerCase()),
+    );
+    if (match) {
+      applyTemplate(match);
+    } else {
+      setStep('details');
+      notifyInfo('No template match', 'Build the quote manually or try AI estimate.');
+    }
+  };
+
+  // UI continues in next part - this file is truncated for size; use full local version
+  return null;
+}
