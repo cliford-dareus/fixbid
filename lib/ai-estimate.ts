@@ -22,19 +22,35 @@ export type AiCostEstimate = {
   upsells: string[];
 };
 
+export type EstimateProvider = 'xai' | 'gemini' | 'auto';
+
 export type EstimateJobCostInput = {
   description?: string;
   photoUrls?: string[];
   hourlyRate?: number;
   region?: string;
+  /** Prefer Gemini, xAI, or auto (server default). */
+  provider?: EstimateProvider;
+};
+
+export type EstimateJobCostResult = {
+  estimate: AiCostEstimate;
+  provider?: string;
 };
 
 /**
- * Calls authenticated edge function estimate-job-cost (xAI / Grok).
+ * Calls authenticated edge function estimate-job-cost (Gemini and/or xAI).
  */
 export async function estimateJobCost(
   input: EstimateJobCostInput,
 ): Promise<AiCostEstimate> {
+  const full = await estimateJobCostWithMeta(input);
+  return full.estimate;
+}
+
+export async function estimateJobCostWithMeta(
+  input: EstimateJobCostInput,
+): Promise<EstimateJobCostResult> {
   const {data: sessionData} = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
   if (!token) {
@@ -56,6 +72,7 @@ export async function estimateJobCost(
       photo_urls: input.photoUrls || [],
       hourly_rate: input.hourlyRate,
       region: input.region,
+      provider: input.provider || 'auto',
     }),
   });
 
@@ -66,7 +83,10 @@ export async function estimateJobCost(
   if (!json.estimate) {
     throw new Error('No estimate in response');
   }
-  return json.estimate as AiCostEstimate;
+  return {
+    estimate: json.estimate as AiCostEstimate,
+    provider: json.provider as string | undefined,
+  };
 }
 
 export function estimateToDraftLineItems(estimate: AiCostEstimate): DraftLineItem[] {
