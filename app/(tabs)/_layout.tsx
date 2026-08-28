@@ -1,8 +1,8 @@
 import {router, Tabs} from 'expo-router';
 import {
-    Activity,
     ArrowUpRight,
-    BarChart3, Briefcase,
+    BarChart3,
+    Briefcase,
     FileText,
     Home,
     List,
@@ -10,7 +10,7 @@ import {
     Plus,
     Toolbox,
     Trophy,
-    User, Users
+    User,
 } from 'lucide-react-native';
 import {Platform, Pressable, Text, TouchableOpacity, View} from 'react-native';
 import {useAuth} from "@/context/auth-context";
@@ -18,14 +18,18 @@ import React, {useEffect, useState} from "react";
 import {BlurView} from "expo-blur";
 import useThemedNavigation from "@/hooks/use-navigation-theme";
 import Animated, {
-    FadeIn, FadeOut, useAnimatedStyle, useDerivedValue,
-    withSpring, withTiming,
+    FadeIn,
+    FadeOut,
+    interpolateColor,
+    useAnimatedStyle,
+    useDerivedValue,
+    withSpring,
+    withTiming,
 } from "react-native-reanimated";
 import {GlassView} from "expo-glass-effect";
-import {interpolateColor} from "react-native-reanimated/src";
 
 export default function ClassicTabLayout() {
-    const {user, session, signOut} = useAuth();
+    const {user, session} = useAuth();
     const isIOS = Platform.OS === "ios";
     const isWeb = Platform.OS === "web";
     const {isDark, colors} = useThemedNavigation();
@@ -76,7 +80,7 @@ export default function ClassicTabLayout() {
                     options={{
                         headerShown: false,
                         title: 'Dashboard',
-                        tabBarIcon: ({color}) => <Home size={24} color={color}/>, // import Home from lucide-react-native
+                        tabBarIcon: ({color}) => <Home size={24} color={color}/>,
                     }}
                 />
                 <Tabs.Screen
@@ -120,31 +124,27 @@ export default function ClassicTabLayout() {
 function ActionMenu({menuVisible, onClose}: { menuVisible: boolean, onClose: () => void }) {
     const BUTTON_WIDTH = 64;
     const BUTTON_HEIGHT = 64;
-    const MODAL_WIDTH = 200;
-    const MODAL_HEIGHT = 230;
+    const MODAL_WIDTH = 280;
 
     const progress = useDerivedValue(() => {
         return withTiming(menuVisible ? 1 : 0, {duration: 50})
-    });
+    })
 
     const animatedContainerStyle = useAnimatedStyle(() => {
         return {
             width: withSpring(menuVisible ? MODAL_WIDTH : BUTTON_WIDTH),
             height: withSpring(menuVisible ? "auto" : BUTTON_HEIGHT),
             borderRadius: withSpring(menuVisible ? 24 : 99999),
-            // position: menuVisible ? 'absolute' : 'static',
             right: withSpring(menuVisible ? 116 : 0),
-
             backgroundColor: interpolateColor(
                 progress.value,
                 [0, 1],
-                ['#f97316', '#18181BB2']
+                ['#f97316', 'transparent']
             ),
             transform: [
                 {translateY: withSpring(menuVisible ? -90 : 0)},
                 {translateX: menuVisible ? 100 : 0}
             ],
-
             elevation: menuVisible ? 50 : 5,
             zIndex: menuVisible ? 99999 : 0,
             shadowOpacity: withSpring(menuVisible ? 0.3 : 0.1),
@@ -214,51 +214,59 @@ function ActionMenu({menuVisible, onClose}: { menuVisible: boolean, onClose: () 
                     }}
                     glassEffectStyle="clear"
                 >
-                    {/* Section 1 */}
-                    <MenuItem icon={<Activity size={20} color="#22c55e"/>} label="Jobs Statistics"
-                              onPress="/jobs/stats"/>
-                    {/*<MenuItem icon={<Utensils size={20} color="#f97316" />} label="Track Calories" showArrow />*/}
-                    {/*<MenuItem icon={<Heart size={20} color="#ef4444" />} label="Track Heart Rate" showArrow />*/}
-                    {/*<MenuItem icon={<Scale size={20} color="#06b6d4" />} label="Log Weight" />*/}
-
-                    {/* Divider */}
+                    <MenuItem
+                        icon={<Briefcase size={20} color="#22c55e"/>}
+                        label="Jobs"
+                        onPress="/jobs"
+                        onClose={onClose}
+                    />
                     <View className="h-[1px] bg-white/10 my-3 mx-2"/>
-
-                    {/* Section 2 */}
-                    <MenuItem icon={<Trophy size={20} color="white"/>} label="Create Quote"
-                              onPress="/quote/new" onClose={onClose}/>
-                    <MenuItem icon={<User size={20} color="white"/>} label="Create Client"
-                              onPress="/client/new" onClose={onClose}/>
-                    <MenuItem icon={<Users size={20} color="white"/>} label="New Group"/>
+                    <MenuItem
+                        icon={<Trophy size={20} color="white"/>}
+                        label="Create Quote"
+                        onPress="/quote/new"
+                        onClose={onClose}
+                    />
+                    <MenuItem
+                        icon={<User size={20} color="white"/>}
+                        label="Create Client"
+                        onPress="/client/new"
+                        onClose={onClose}
+                    />
                 </GlassView>
             </Animated.View>}
         </Animated.View>
     );
 }
 
-function MenuItem({icon, label, showArrow, onPress, onClose}: {
-    icon: any,
-    label: string,
-    showArrow?: boolean,
-    onPress?: any,
-    onClose?: any
+function MenuItem({
+    icon,
+    label,
+    showArrow,
+    onPress,
+    onClose,
+}: {
+    icon: React.ReactNode;
+    label: string;
+    showArrow?: boolean;
+    onPress?: string;
+    onClose?: () => void;
 }) {
-    const closeMenu = () => {
-        onClose()
-    }
-
     return (
         <TouchableOpacity
             onPress={() => {
-                closeMenu()
-                router.push(onPress)
+                onClose?.();
+                if (onPress) {
+                    router.push(onPress as any);
+                }
             }}
-            className="flex-row items-center justify-between py-3 px-2 active:bg-white/10 rounded-xl">
+            className="flex-row items-center justify-between rounded-xl px-2 py-3 active:bg-white/10"
+        >
             <View className="flex-row items-center">
                 <View className="mr-3">{icon}</View>
-                <Text className="text-zinc-200 text-lg font-medium">{label}</Text>
+                <Text className="text-lg font-medium text-zinc-200">{label}</Text>
             </View>
-            {showArrow && <ArrowUpRight size={16} color="#9ca3af"/>}
+            {showArrow ? <ArrowUpRight size={16} color="#9ca3af" /> : null}
         </TouchableOpacity>
     );
 }
@@ -279,12 +287,13 @@ function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
                                 target: route.key,
                                 canPreventDefault: true,
                             });
+
                             if (!isFocused && !event.defaultPrevented) {
                                 navigation.navigate(route.name);
                             }
                         };
 
-                        // Icon Mapping
+                        // Icon mapping
                         const icons: any = {
                             index: (props: any) => <Home {...props} />,
                             quotes: (props: any) => <Trophy {...props} />,
@@ -312,7 +321,6 @@ function CustomTabBar({state, navigation, onPlusPress, isMenuOpen}: any) {
                                         style={{
                                             position: 'absolute',
                                             inset: 0,
-                                            // width: '100%',
                                             borderRadius: 24,
                                             zIndex: -1,
                                             isolation: 'isolate',
