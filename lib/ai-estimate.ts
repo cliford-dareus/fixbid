@@ -31,6 +31,9 @@ export type EstimateJobCostInput = {
   region?: string;
   /** Prefer Gemini, xAI, or auto (server default). */
   provider?: EstimateProvider;
+  /** Raw base64 audio (no data: prefix) for voice-to-quote. */
+  audioBase64?: string;
+  audioMime?: string;
 };
 
 export type EstimateJobCostResult = {
@@ -40,6 +43,7 @@ export type EstimateJobCostResult = {
 
 /**
  * Calls authenticated edge function estimate-job-cost (Gemini and/or xAI).
+ * Pass audioBase64 for voice-to-quote (Gemini multimodal).
  */
 export async function estimateJobCost(
   input: EstimateJobCostInput,
@@ -72,7 +76,9 @@ export async function estimateJobCostWithMeta(
       photo_urls: input.photoUrls || [],
       hourly_rate: input.hourlyRate,
       region: input.region,
-      provider: input.provider || 'auto',
+      provider: input.provider || (input.audioBase64 ? 'gemini' : 'auto'),
+      audio_base64: input.audioBase64 || undefined,
+      audio_mime: input.audioMime || undefined,
     }),
   });
 
@@ -87,6 +93,29 @@ export async function estimateJobCostWithMeta(
     estimate: json.estimate as AiCostEstimate,
     provider: json.provider as string | undefined,
   };
+}
+
+/** Voice-to-quote: audio and/or transcript → line items + notes. */
+export async function estimateFromVoice(input: {
+  audioBase64?: string;
+  audioMime?: string;
+  transcript?: string;
+  photoUrls?: string[];
+  hourlyRate?: number;
+  region?: string;
+}): Promise<AiCostEstimate> {
+  if (!input.audioBase64 && !input.transcript) {
+    throw new Error('Record audio or provide a transcript');
+  }
+  return estimateJobCost({
+    description: input.transcript || '',
+    photoUrls: input.photoUrls,
+    hourlyRate: input.hourlyRate,
+    region: input.region,
+    audioBase64: input.audioBase64,
+    audioMime: input.audioMime,
+    provider: input.audioBase64 ? 'gemini' : 'auto',
+  });
 }
 
 export function estimateToDraftLineItems(estimate: AiCostEstimate): DraftLineItem[] {
