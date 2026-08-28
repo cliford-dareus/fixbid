@@ -17,6 +17,8 @@ import {StripeProvider} from '@stripe/stripe-react-native';
 import {ProfileProvider} from "@/context/profile-context";
 // eslint-disable-next-line import/no-named-as-default
 import ThemeProvider from "@/context/theme-context";
+import {ToastProvider} from "@/context/toast-context";
+import {ErrorBoundary} from "@/components/error-boundary";
 import {registerPushTokenForUser, setupNotifications} from "@/lib/notification";
 import {queryClient} from "@/lib/query-client";
 
@@ -56,31 +58,37 @@ export default function RootLayout() {
     if (!fontsLoaded && !fontError) return null;
 
     return (
-        <QueryClientProvider client={queryClient}>
-            <StripeProvider publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY!}>
-                <SafeAreaProvider>
-                    <GestureHandlerRootView style={{flex: 1}}>
-                        <AuthProvider>
-                            <ProfileProvider>
-                                <QuoteProvider>
-                                    <ThemeProvider>
-                                        <PushTokenRegistrar />
-                                        <Stack screenOptions={{headerShown: false}}>
-                                            <Stack.Screen name="index" options={{headerShown: false}}/>
-                                            <Stack.Screen name="(auth)" options={{headerShown: false}}/>
-                                            <Stack.Screen name="(tabs)" options={{headerShown: false}}/>
+        <ErrorBoundary name="Root">
+            <QueryClientProvider client={queryClient}>
+                <StripeProvider publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY!}>
+                    <SafeAreaProvider>
+                        <GestureHandlerRootView style={{flex: 1}}>
+                            <ToastProvider>
+                                <AuthProvider>
+                                    <ProfileProvider>
+                                        <QuoteProvider>
+                                            <ThemeProvider>
+                                                <ErrorBoundary name="AppShell">
+                                                    <PushTokenRegistrar />
+                                                    <Stack screenOptions={{headerShown: false}}>
+                                                        <Stack.Screen name="index" options={{headerShown: false}}/>
+                                                        <Stack.Screen name="(auth)" options={{headerShown: false}}/>
+                                                        <Stack.Screen name="(tabs)" options={{headerShown: false}}/>
 
-                                            <Stack.Screen name="quotes/new" options={{headerShown: false, presentation: 'modal'}}/>
-                                            <Stack.Screen name="quotes/[id]" options={{headerShown: false}}/>
-                                            <Stack.Screen name="settings" options={{headerShown: false, presentation: 'modal'}}/>
-                                        </Stack>
-                                    </ThemeProvider>
-                                </QuoteProvider>
-                            </ProfileProvider>
-                        </AuthProvider>
-                    </GestureHandlerRootView>
-                </SafeAreaProvider>
-            </StripeProvider>
-        </QueryClientProvider>
+                                                        <Stack.Screen name="quotes/new" options={{headerShown: false, presentation: 'modal'}}/>
+                                                        <Stack.Screen name="quotes/[id]" options={{headerShown: false}}/>
+                                                        <Stack.Screen name="settings" options={{headerShown: false, presentation: 'modal'}}/>
+                                                    </Stack>
+                                                </ErrorBoundary>
+                                            </ThemeProvider>
+                                        </QuoteProvider>
+                                    </ProfileProvider>
+                                </AuthProvider>
+                            </ToastProvider>
+                        </GestureHandlerRootView>
+                    </SafeAreaProvider>
+                </StripeProvider>
+            </QueryClientProvider>
+        </ErrorBoundary>
     );
 }
