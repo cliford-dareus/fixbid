@@ -17,6 +17,10 @@ export function notifyInfo(title: string, message?: string) {
   toast.info(title, message);
 }
 
+export function notifyWarning(title: string, message?: string) {
+  toast.warning(title, message);
+}
+
 /** Map unknown thrown values to a short user-facing string. */
 export function errorMessage(err: unknown, fallback = 'Something went wrong'): string {
   if (!err) return fallback;
@@ -50,7 +54,6 @@ export function confirm(options: ConfirmOptions): Promise<boolean> {
     destructive = false,
   } = options;
 
-  // Web: prefer window.confirm when Alert is awkward
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
     return Promise.resolve(window.confirm(message ? `${title}\n\n${message}` : title));
   }
