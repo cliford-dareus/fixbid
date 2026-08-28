@@ -11,7 +11,6 @@ import {
 import {router} from 'expo-router';
 import useThemedNavigation from '@/hooks/use-navigation-theme';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {SectionCard} from '@/app/settings/profile';
 import {Feather} from '@expo/vector-icons';
 import {useProfile} from '@/context/profile-context';
 import {useAuth} from '@/context/auth-context';
@@ -19,6 +18,7 @@ import {useTheme} from '@/hooks/use-theme';
 import type {ThemePreference} from '@/context/theme-context';
 import {displayBusinessName} from '@/lib/branding';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {Button, Card, CardTitle} from '@/components/ui';
 
 const NOTIF_KEY = 'fixbid_notifications_enabled_v1';
 
@@ -48,17 +48,15 @@ function SettingsRow({
         <Feather name={icon} size={18} color={colors.primary} />
       </View>
       <View className="min-w-0 flex-1">
-        <Text className="text-foreground text-[15px] font-semibold">{title}</Text>
+        <Text className="text-[15px] font-semibold text-foreground">{title}</Text>
         {subtitle ? (
-          <Text className="text-muted-foreground mt-0.5 text-xs" numberOfLines={2}>
+          <Text className="mt-0.5 text-xs text-muted-foreground" numberOfLines={2}>
             {subtitle}
           </Text>
         ) : null}
       </View>
       {right ??
-        (onPress ? (
-          <Feather name="chevron-right" size={18} color={colors.icon} />
-        ) : null)}
+        (onPress ? <Feather name="chevron-right" size={18} color={colors.icon} /> : null)}
     </View>
   );
 
@@ -89,9 +87,7 @@ function ThemeOption({
     <TouchableOpacity
       onPress={() => onSelect(value)}
       activeOpacity={0.85}
-      className={`flex-1 items-center gap-2 rounded-2xl border px-2 py-3 ${
-        selected ? 'border-primary bg-primary/10' : 'border-zinc-200 dark:border-zinc-700'
-      }`}
+      className="relative flex-1 items-center gap-2 rounded-2xl border px-2 py-3"
       style={{
         borderColor: selected ? colors.primary : colors.border,
         backgroundColor: selected ? 'rgba(249, 115, 22, 0.12)' : colors.lightDark,
@@ -168,10 +164,10 @@ export default function SettingsModal() {
     <View className="flex-1 bg-background" style={{paddingTop: topPad + 8}}>
       <View className="mb-2 flex-row items-center justify-between px-5">
         <View className="flex-1">
-          <Text className="text-foreground text-[26px] font-extrabold tracking-[-0.5px]">
+          <Text className="text-[26px] font-extrabold tracking-[-0.5px] text-foreground">
             Settings
           </Text>
-          <Text className="text-muted-foreground mt-0.5 text-[13px]">
+          <Text className="mt-0.5 text-[13px] text-muted-foreground">
             Account, payments, and appearance
           </Text>
         </View>
@@ -186,9 +182,10 @@ export default function SettingsModal() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{paddingBottom: insets.bottom + 40}}
+        contentContainerStyle={{paddingBottom: insets.bottom + 40, gap: 12, paddingHorizontal: 16}}
       >
-        <SectionCard title="Account" colors={colors}>
+        <Card>
+          <CardTitle>Account</CardTitle>
           <TouchableOpacity
             onPress={() => router.push('/settings/profile')}
             className="w-full flex-row items-center gap-3"
@@ -198,18 +195,19 @@ export default function SettingsModal() {
               <Text className="text-[15px] font-extrabold text-white">{initials}</Text>
             </View>
             <View className="min-w-0 flex-1">
-              <Text className="text-foreground text-[16px] font-semibold" numberOfLines={1}>
+              <Text className="text-[16px] font-semibold text-foreground" numberOfLines={1}>
                 {displayName}
               </Text>
-              <Text className="text-muted-foreground text-[13px]" numberOfLines={1}>
+              <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
                 {user?.email || 'Update your profile info'}
               </Text>
             </View>
             <Feather name="chevron-right" size={20} color={colors.icon} />
           </TouchableOpacity>
-        </SectionCard>
+        </Card>
 
-        <SectionCard title="Payments" colors={colors}>
+        <Card>
+          <CardTitle>Payments</CardTitle>
           <SettingsRow
             icon="dollar-sign"
             iconBg="rgba(249, 115, 22, 0.15)"
@@ -218,10 +216,11 @@ export default function SettingsModal() {
             onPress={() => router.push('/settings/payment-setup')}
             colors={colors}
           />
-        </SectionCard>
+        </Card>
 
-        <SectionCard title="Appearance" colors={colors}>
-          <Text className="text-muted-foreground mb-3 text-xs">
+        <Card>
+          <CardTitle>Appearance</CardTitle>
+          <Text className="mb-3 text-xs text-muted-foreground">
             Current: {theme === 'dark' ? 'Dark' : 'Light'}
             {preference === 'system' ? ' (following system)' : ''}
           </Text>
@@ -251,9 +250,10 @@ export default function SettingsModal() {
               colors={colors}
             />
           </View>
-        </SectionCard>
+        </Card>
 
-        <SectionCard title="Notifications" colors={colors}>
+        <Card>
+          <CardTitle>Notifications</CardTitle>
           <SettingsRow
             icon="bell"
             iconBg={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)'}
@@ -269,9 +269,10 @@ export default function SettingsModal() {
               />
             }
           />
-        </SectionCard>
+        </Card>
 
-        <SectionCard title="Support" colors={colors}>
+        <Card>
+          <CardTitle>Support</CardTitle>
           <SettingsRow
             icon="help-circle"
             iconBg={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)'}
@@ -285,21 +286,18 @@ export default function SettingsModal() {
             }}
             colors={colors}
           />
-        </SectionCard>
+        </Card>
 
-        <View className="mx-4 mt-2">
-          <TouchableOpacity
-            onPress={handleSignOut}
-            activeOpacity={0.85}
-            className="flex-row items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 py-3.5 dark:border-red-900 dark:bg-red-950/40"
-          >
-            <Feather name="log-out" size={18} color="#b91c1c" />
-            <Text className="text-[15px] font-bold text-red-700">Sign out</Text>
-          </TouchableOpacity>
-          {user?.email ? (
-            <Text className="text-muted-foreground mt-3 text-center text-xs">{user.email}</Text>
-          ) : null}
-        </View>
+        <Button
+          title="Sign out"
+          variant="danger"
+          icon="log-out"
+          onPress={handleSignOut}
+          className="mt-1"
+        />
+        {user?.email ? (
+          <Text className="text-center text-xs text-muted-foreground">{user.email}</Text>
+        ) : null}
       </ScrollView>
     </View>
   );
