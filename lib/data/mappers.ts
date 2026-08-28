@@ -45,6 +45,12 @@ export function mapQuoteRow(row: Row): Quote {
     created_at: row.created_at,
     photos: row.photos ?? [],
     handyman_id: row.handyman_id,
+    inclusions: row.inclusions ?? null,
+    exclusions: row.exclusions ?? null,
+    warranty_text: row.warranty_text ?? null,
+    deposit_percent:
+      row.deposit_percent != null ? Number(row.deposit_percent) : null,
+    valid_until: row.valid_until ?? null,
   };
 }
 
@@ -96,6 +102,13 @@ export function mapProfileRow(row: Row): Profile {
       ? Number(row.default_tax_rate)
       : undefined,
     expo_push_token: row.expo_push_token ?? null,
+    default_inclusions: row.default_inclusions ?? null,
+    default_exclusions: row.default_exclusions ?? null,
+    warranty_text: row.warranty_text ?? null,
+    deposit_percent:
+      row.deposit_percent != null ? Number(row.deposit_percent) : 50,
+    quote_valid_days:
+      row.quote_valid_days != null ? Number(row.quote_valid_days) : 30,
   };
 }
 
@@ -110,6 +123,11 @@ export function quoteUpdatesToDb(updates: Partial<Quote>): Record<string, unknow
   if (updates.notes !== undefined) db.notes = updates.notes;
   if (updates.total_amount !== undefined) db.total_amount = updates.total_amount;
   if (updates.photos !== undefined) db.photos = updates.photos;
+  if (updates.inclusions !== undefined) db.inclusions = updates.inclusions;
+  if (updates.exclusions !== undefined) db.exclusions = updates.exclusions;
+  if (updates.warranty_text !== undefined) db.warranty_text = updates.warranty_text;
+  if (updates.deposit_percent !== undefined) db.deposit_percent = updates.deposit_percent;
+  if (updates.valid_until !== undefined) db.valid_until = updates.valid_until;
   return db;
 }
 
@@ -168,5 +186,10 @@ export function profileUpdatesToDb(updates: Partial<Profile>): Record<string, un
   }
   if (updates.default_tax_rate !== undefined) db.default_tax_rate = updates.default_tax_rate;
   if (updates.expo_push_token !== undefined) db.expo_push_token = updates.expo_push_token;
+  if (updates.default_inclusions !== undefined) db.default_inclusions = updates.default_inclusions;
+  if (updates.default_exclusions !== undefined) db.default_exclusions = updates.default_exclusions;
+  if (updates.warranty_text !== undefined) db.warranty_text = updates.warranty_text;
+  if (updates.deposit_percent !== undefined) db.deposit_percent = updates.deposit_percent;
+  if (updates.quote_valid_days !== undefined) db.quote_valid_days = updates.quote_valid_days;
   return db;
 }
