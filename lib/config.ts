@@ -14,3 +14,8 @@ export const PUBLIC_QUOTE_BASE =
 export function publicQuoteUrl(quoteId: string): string {
   return `${PUBLIC_QUOTE_BASE}/?id=${encodeURIComponent(quoteId)}`;
 }
+
+/** Public quote page focused on remaining balance (same page; status drives UI). */
+export function publicBalanceUrl(quoteId: string): string {
+  return `${PUBLIC_QUOTE_BASE}/?id=${encodeURIComponent(quoteId)}&pay=balance`;
+}
