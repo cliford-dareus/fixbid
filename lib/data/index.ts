@@ -23,6 +23,8 @@ export type {
   QuoteStatus,
 } from './types';
 
+export type {PaymentRecord} from './payments';
+
 export * as clientsApi from './clients';
 export * as quotesApi from './quotes';
 export * as jobsApi from './jobs';
