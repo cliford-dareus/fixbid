@@ -16,6 +16,11 @@ const QUOTE_SELECT = `
   created_at,
   photos,
   handyman_id,
+  inclusions,
+  exclusions,
+  warranty_text,
+  deposit_percent,
+  valid_until,
   quote_line_items (
     id,
     description,
@@ -25,6 +30,12 @@ const QUOTE_SELECT = `
     photo_url
   )
 `;
+
+function addDaysIso(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 export async function listQuotes(handymanId: string): Promise<Result<Quote[]>> {
   try {
@@ -58,6 +69,17 @@ export async function getQuote(id: string): Promise<Result<Quote>> {
 
 export async function createQuote(input: CreateQuoteInput): Promise<Result<Quote>> {
   try {
+    const status = input.status ?? 'draft';
+    const deposit =
+      input.deposit_percent != null && input.deposit_percent > 0
+        ? input.deposit_percent
+        : 50;
+
+    let validUntil = input.valid_until ?? null;
+    if (status === 'sent' && !validUntil) {
+      validUntil = addDaysIso(30);
+    }
+
     const {data: quote, error: quoteError} = await supabase
       .from('quotes')
       .insert({
@@ -69,7 +91,12 @@ export async function createQuote(input: CreateQuoteInput): Promise<Result<Quote
         notes: input.notes ?? null,
         photos: input.photos ?? [],
         total_amount: input.total_amount,
-        status: input.status ?? 'draft',
+        status,
+        inclusions: input.inclusions ?? null,
+        exclusions: input.exclusions ?? null,
+        warranty_text: input.warranty_text ?? null,
+        deposit_percent: deposit,
+        valid_until: validUntil,
       })
       .select()
       .single();
@@ -102,6 +129,19 @@ export async function updateQuote(
 ): Promise<Result<void>> {
   try {
     const dbUpdates = quoteUpdatesToDb(updates);
+
+    // When marking sent, set valid_until if missing
+    if (updates.status === 'sent' && updates.valid_until === undefined) {
+      const {data: existing} = await supabase
+        .from('quotes')
+        .select('valid_until')
+        .eq('id', id)
+        .maybeSingle();
+      if (!existing?.valid_until) {
+        dbUpdates.valid_until = addDaysIso(30);
+      }
+    }
+
     if (Object.keys(dbUpdates).length === 0) return ok(undefined);
 
     const {error} = await supabase.from('quotes').update(dbUpdates).eq('id', id);
@@ -150,7 +190,6 @@ export async function replaceLineItems(
       });
       if (!rev.ok) {
         console.warn('revision record failed', rev.error);
-        // non-fatal — still apply the edit
       }
     }
 
@@ -173,13 +212,15 @@ export async function replaceLineItems(
       if (insErr) return err(insErr);
     }
 
-    const {error: upErr} = await supabase
-      .from('quotes')
-      .update({
-        total_amount: totalAmount,
-        status: newStatus,
-      })
-      .eq('id', quoteId);
+    const patch: Record<string, unknown> = {
+      total_amount: totalAmount,
+      status: newStatus,
+    };
+    if (newStatus === 'sent') {
+      patch.valid_until = prev.valid_until || addDaysIso(30);
+    }
+
+    const {error: upErr} = await supabase.from('quotes').update(patch).eq('id', quoteId);
     if (upErr) return err(upErr);
 
     return getQuote(quoteId);
