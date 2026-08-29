@@ -25,7 +25,7 @@ export default function ClientQuoteView() {
         setLoading(true);
         try {
             const response = await fetch(
-                `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/public-quote?id=${id}`,
+                `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/public-quote/?id=${id}`,
             );
             const result = await response.json();
             if (!result.success && !result.quote) {
